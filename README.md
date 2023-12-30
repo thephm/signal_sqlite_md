@@ -11,6 +11,10 @@ Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output
 
 I probably should've called it `signal_sqlite_csv_md` because the script doesn't read directly from the SQLite DB, instead it parses a CSV export from it. I tried directly accessing the DB and gave up 🤣
 
+## Dependencies
+
+The code in this repo relies heavily on my message_md classes which contain generic `Message`, `Person`, `Group` and other classes and the methods to convert messages to Markdown files. Be sure to read the `README` and the configuration guide for that repo first. 
+
 ## Context
 
 A big shoutout to Florian Engel whose post `[1]` saved me hours 🤗.
@@ -24,9 +28,9 @@ The attachments are not in the DB, they're stored in the file system in a series
 1. [Extracting Messages from Signal Desktop](https://www.tc3.dev/posts/2021-11-02-extract-messages-from-signal/) by [Florian Engel](https://www.linkedin.com/in/engelflorian)
 2. [DB Browser for SQLite](https://sqlitebrowser.org/dl/)
 
-## Before you start
+## It's your data, go get it!
 
-Do the following:
+Do the following to get the Signal chat `messages` out of the SQLite database and the identifiers (`conversation-id`) for each person and group 
 
 1. Install DB Browser for SQLite - [2]
 	- *NOTE: I had to try multiple older versions before I got one that would open the file*
@@ -50,9 +54,9 @@ Do the following:
 
 ## Setting up the config files
 
-You need to define each person you communicate with in `people.json` and groups in `groups.json`.
+The next step is to configure this tool. You'll need to define each person that you communicate with in `people.json` and the groups in `groups.json`. This way the tool can associate each message with the person that sent it and who it was sent to.
 
-Samples of the files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config).
+Samples of these configuration files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config) upon which this tool [depends](#dependencies)
 
 This part is tedious the first time and needs to be updated when you add new contacts or Groups in Signal, i.e. a pain.
 
