@@ -1,16 +1,18 @@
 # signal_sqlite_md
 
-Convert messages from a Signal SQLite database export to Markdown
+Convert messages from a Signal SQLite database export to Markdown.
+
+Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this one requires nothing beyond this Python script, configuration, and a tool to export the DB.
 
 **DRAFT NOT FULLY TESTED!**
 
 ## Context
 
-Big shoutout to Florian Engel who's post `[1]` saved me hours.
+A big shoutout to Florian Engel whose post `[1]` saved me hours.
 
-The SQLite DB is encrypted but it's easy (thanks to Florian's post) to decrypt. 
+The SQLite DB is encrypted but it's easy to decrypt because you have the key! 
 
-The attachments are stored in the file system (not in the DB) in a series of folders with 2 digit Hex labels. The files have names like this `000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7` with no suffix but don't worry, that info is in the DB and the script takes care of adding the suffix e.g. `.jpg`.
+The attachments are not in the DB, they're stored in the file system in a series of folders with 2 digit Hex labels. The files have names like "`000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7`" with no suffix but don't worry, that info is in the DB and the script takes care of adding the suffix e.g. "`.jpg`".
 
 ## References
 
@@ -21,25 +23,25 @@ The attachments are stored in the file system (not in the DB) in a series of fol
 
 Do the following:
 
-1. Install `DB Browser for SQLite`, see `[2]`
-	- *NOTE*: I had to try multiple older versions before I got one that would open the file
-2. Find the **key** to your SQLite DB, see `[1]`. For me, on Windows, with user `micro` it was here:
-	- `C:\Users\micro\AppData\Roaming\Signal\config.json`
-3. Find the **path** to your Signal SQLite DB. For me, it was here:
-	- `C:\Users\micro\AppData\Roaming\Signal\sql\db.sqlite`
-4. Launch `DB Browser for SQLite`
-5. Click `Open Database` 
-6. Choose `Raw key` from the menu to the right of the `Password` field
-7. In the `Password` field, type `0x` and then paste the `key` you found in step 2
-8. Right click on `messages` and click `Export as CSV file`
+1. Install DB Browser for SQLite - [2]
+	- *NOTE: I had to try multiple older versions before I got one that would open the file*
+2. Find the **key** to your SQLite DB, see [1]
+    - For me, on Windows, with user `micro` it was here: `C:\Users\micro\AppData\Roaming\Signal\config.json`
+3. Find the **path** to your Signal SQLite database file
+    - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\db.sqlite`
+4. Launch "DB Browser for SQLite"
+5. Click "Open Database"
+6. Choose `Raw key` from the menu to the right of the "Password" field
+7. In the "Password" field, type `0x` and then paste the **key** you found in step 2
+8. Right click on "messages" and click "Export as CSV file"
 
 ![](media/dbbrowser_export_messages.png)
 
-9. Right click on `conversations` and click `Export as CSV file`
-10. Find the attachments, Mine were under:
-    - `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
-11. Copy the attachments to the same folder (no subfolders) as the CSV files
-    - I can improve this later, for now a shell script to copy them
+9. Right click on "conversations" and click "Export as CSV file"
+10. Find the attachments
+    - Mine were under: `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
+11. Copy the attachments to the same folder (no subfolders) as the CSV file
+    - *NOTE: I can improve this later, for now a shell script to copy them*
 
 ## Setting up the config files
 
@@ -52,7 +54,7 @@ Someday I can automate this but for now, no pain, no gain 🙂.
 ### People
 
 1. Open the `conversations.csv` file in your favorite editor
-2. Go through the first row
+2. Look at the first 
 3. If there's a `groupId` field value, that's a group
     - the `name` field will tell you the name of the group
 
@@ -92,7 +94,7 @@ Someday I can automate this but for now, no pain, no gain 🙂.
 
 ## Using signal_sqlite_md
 
-Once you have the two CSV export files and you have your `people.json`, `groups.json` defined as described above, you're finally ready to run this tool.
+Once you have the two CSV export files and you have your `people.json`, `groups.json` configured, you're finally ready to run this tool.
 
 The [command line options](https://github.com/thephm/message_md#command-line-options) are described in the [message_md](https://github.com/thephm/message_md) repo.
 
