@@ -2,13 +2,18 @@
 
 Convert messages from a Signal SQLite database export to Markdown.
 
+**DRAFT NOT FULLY TESTED!**
+
 Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this one requires nothing beyond this Python script, configuration, and a tool to export the DB.
 
-**DRAFT NOT FULLY TESTED!**
+
+## Disclaimer
+
+I probably should've called it `signal_sqlite_csv_md` because the script doesn't read directly from the SQLite DB, instead it parses a CSV export from it. I tried directly accessing the DB and gave up 🤣
 
 ## Context
 
-A big shoutout to Florian Engel whose post `[1]` saved me hours.
+A big shoutout to Florian Engel whose post `[1]` saved me hours 🤗.
 
 The SQLite DB is encrypted but it's easy to decrypt because you have the key! 
 
@@ -47,11 +52,13 @@ Do the following:
 
 You need to define each person you communicate with in `people.json` and groups in `groups.json`.
 
-This is tedious the first time and needs to be updated when you add new contacts or Groups in Signal, i.e. a pain.
+Samples of the files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config).
 
-Someday I can automate this but for now, no pain, no gain 🙂.
+This part is tedious the first time and needs to be updated when you add new contacts or Groups in Signal, i.e. a pain.
 
-### People
+Someday I can automate this but for now, no pain, no gain 🙂. The next sections describe
+
+### People and groups
 
 1. Open the `conversations.csv` file in your favorite editor
 2. Look at the first 
@@ -86,11 +93,6 @@ Someday I can automate this but for now, no pain, no gain 🙂.
     - set `description` to `name` either the name from `conversations.csv` or something else e.g. "They get hooked!"
      
 4. Repeat Steps 3 to 5 for every row
-
-### Groups
-
-1. Do the same 
-
 
 ## Using signal_sqlite_md
 
