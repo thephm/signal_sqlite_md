@@ -45,8 +45,8 @@ This section desribes how to get the Signal chat `messages` out of the SQLite da
 	- *NOTE: I had to try multiple older versions before I got one that would open the file*
 2. Find the **key** to your SQLite DB, see [1]
     - For me, on Windows, with user `micro` it was here: `C:\Users\micro\AppData\Roaming\Signal\config.json`
-3. Find the **path** to your Signal SQLite database file
-    - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\db.sqlite`
+3. Find the **path** to your Signal `db.sqlite` database file
+    - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\`
 4. Launch "DB Browser for SQLite"
 5. Click "Open Database"
 6. Choose `Raw key` from the menu to the right of the "Password" field
@@ -78,7 +78,7 @@ The next sections describes where to find the identifiers for people and groups.
 ### People and groups
 
 1. Open the `conversations.csv` file in your favorite editor
-2. Look at the first 
+2. Look at the first row
 3. If there's a `groupId` field value, that's a group
     - the `name` field will tell you the name of the group
 
@@ -90,7 +90,7 @@ The next sections describes where to find the identifiers for people and groups.
 
 4. If there's no `groupID` value, it's a person
     - the `name` field will be the name of the person
-    - Find the `id` and the `name` field will tell you the name of the Person
+    - Find the `id` field
 
 ```
 ""id"":""a1760c87-d3d0-40f6-9992-ac0426efcc15""
@@ -99,13 +99,13 @@ The next sections describes where to find the identifiers for people and groups.
 ```
 
 5. Add the corresponding row to `groups.json` or `people.json`:
-    - set group `id` to `id` from `conversations.csv`
+    - set group `id` to the `id` from `conversations.csv`
     - set the `conversation-id`: 
-        - for a group, use the `groupID` from `conversations.csv`
-        - for a person use `id` from `conversations.csv`
+        - for a group, use the `groupID` from  Step 3
+        - for a person use `id` from Step 4
     - set `slug`:
-        - choose a one-word or hyphenated keyword for this person or group 
-        - this slug must match what the frontmatter `slug` field value the person's `person.md` profile so messages can be correlated to the specific person in your notes
+        - come up with a one-word or hyphenated keyword (`slug`) for this person or group 
+        - the slug must match the frontmatter `slug` field value in the person's `person.md` profile so that messages can be correlated to the specific person in your notes
         - Example: `spongebob`
     - set `description` to `name` either the name from `conversations.csv` or something else e.g. "They get hooked!"
      
@@ -113,7 +113,7 @@ The next sections describes where to find the identifiers for people and groups.
 
 ## Using signal_sqlite_md
 
-Once you have the two CSV export files and you have your `people.json`, `groups.json` configured, you're finally ready to run this tool.
+Once you have the two CSV export files and you your `people.json` and `groups.json` configured, you're finally ready to run this tool.
 
 The [command line options](https://github.com/thephm/message_md#command-line-options) are described in the [message_md](https://github.com/thephm/message_md) repo.
 
