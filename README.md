@@ -6,14 +6,9 @@ Convert messages from a Signal SQLite database export to Markdown.
 
 Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this one requires nothing beyond this Python script, configuration, and a tool to export the DB.
 
-
 ## Disclaimer
 
 I probably should've called it `signal_sqlite_csv_md` because the script doesn't read directly from the SQLite DB, instead it parses a CSV export from it. I tried directly accessing the DB and gave up 🤣
-
-## Dependencies
-
-The code in this repo relies heavily on my message_md classes which contain generic `Message`, `Person`, `Group` and other classes and the methods to convert messages to Markdown files. Be sure to read the `README` and the configuration guide for that repo first. 
 
 ## Context
 
@@ -23,14 +18,28 @@ The SQLite DB is encrypted but it's easy to decrypt because you have the key!
 
 The attachments are not in the DB, they're stored in the file system in a series of folders with 2 digit Hex labels. The files have names like "`000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7`" with no suffix but don't worry, that info is in the DB and the script takes care of adding the suffix e.g. "`.jpg`".
 
+## Dependencies
+
+The code in this repo relies heavily on my [message_md](https://github.com/thephm/message_md) classes which contain generic `Message`, `Person`, `Group` and other classes and the methods to convert messages to Markdown files. Be sure to read the `README` and the configuration guide for that repo first. 
+
 ## References
 
-1. [Extracting Messages from Signal Desktop](https://www.tc3.dev/posts/2021-11-02-extract-messages-from-signal/) by [Florian Engel](https://www.linkedin.com/in/engelflorian)
-2. [DB Browser for SQLite](https://sqlitebrowser.org/dl/)
+1. [Extracting Messages from Signal Desktop](https://www.tc3.dev/posts/2021-11-02-extract-messages-from-signal/) by [Florian Engel](https://www.linkedin.com/in/engelflorian) guided my way
+2. [DB Browser for SQLite](https://sqlitebrowser.org/dl/) to get your data
+3. [message_md](https://github.com/thephm/message_md) upon which this tool depends
+
+## High level process
+
+1. Get your Signal data
+2. Configure this tool
+3. Run this tool
+4. Be happy
 
 ## It's your data, go get it!
 
-Do the following to get the Signal chat `messages` out of the SQLite database and the identifiers (`conversation-id`) for each person and group 
+This section desribes how to get the Signal chat `messages` out of the SQLite database and the identifiers (`conversation-id`) for each person and group.
+
+**Steps**
 
 1. Install DB Browser for SQLite - [2]
 	- *NOTE: I had to try multiple older versions before I got one that would open the file*
@@ -54,13 +63,17 @@ Do the following to get the Signal chat `messages` out of the SQLite database an
 
 ## Setting up the config files
 
-The next step is to configure this tool. You'll need to define each person that you communicate with in `people.json` and the groups in `groups.json`. This way the tool can associate each message with the person that sent it and who it was sent to.
+The next step is to configure this tool. 
 
-Samples of these configuration files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config) upon which this tool [depends](#dependencies)
+You'll need to define each person that you communicate with in `people.json` and the groups in `groups.json`. This way the tool can associate each message with the person that sent it and who it was sent to.
+
+Samples of these configuration files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config) upon which this tool [depends](#dependencies).
 
 This part is tedious the first time and needs to be updated when you add new contacts or Groups in Signal, i.e. a pain.
 
-Someday I can automate this but for now, no pain, no gain 🙂. The next sections describe
+Someday I can automate this but for now, no pain, no gain 🙂. 
+
+The next sections describes where to find the identifiers for people and groups.
 
 ### People and groups
 
