@@ -119,7 +119,7 @@ The [command line options](https://github.com/thephm/message_md#command-line-opt
 Example:
 
 ```
-/mnt/c/data/github/signal_md# python3 signal_sqlite_md.py -c ../../dev-output/config -s ../../signal_sqlite/ -f messages_2023-12-25_21-36.csv -d -o ../../dev-output -m spongebob -b 2023-12-20
+# python3 signal_sqlite_md.py -c ../../dev-output/config -s ../../signal_sqlite/ -f messages_2023-12-25_21-36.csv -d -o ../../dev-output -m spongebob -b 2023-12-20
 ```
 
 where: 
