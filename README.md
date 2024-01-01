@@ -58,7 +58,7 @@ This section desribes how to get the Signal chat `messages` out of the SQLite da
     - Mine were under: `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
 11. Copy the attachments to the same folder (no subfolders) as the CSV file
     - the `cp_signal_attachments.sh` shell script made it easier for me
-    - *NOTE: I can improve this later, for now a shell script to copy them*
+    - *NOTE: I can improve this later to get the files directly, being lazy!*
 
 ## Setting up the config files
 
