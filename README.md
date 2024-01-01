@@ -2,8 +2,6 @@
 
 Convert messages from a Signal SQLite database export to Markdown.
 
-**DRAFT NOT FULLY TESTED!**
-
 Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this one requires nothing beyond this Python script, configuration, and a tool to export the DB.
 
 ## Disclaimer
@@ -59,6 +57,7 @@ This section desribes how to get the Signal chat `messages` out of the SQLite da
 10. Find the attachments
     - Mine were under: `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
 11. Copy the attachments to the same folder (no subfolders) as the CSV file
+    - the `cp_signal_attachments.sh` shell script made it easier for me
     - *NOTE: I can improve this later, for now a shell script to copy them*
 
 ## Setting up the config files
