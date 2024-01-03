@@ -495,7 +495,7 @@ def parseRow(row, message, fieldMap):
 # Parameters:
 # 
 #   - fileName - the CSV file
-#   - message - where the Message objects will go
+#   - messages - where the Message objects will go
 #   - reactions - not used
 #   - theConfig - specific settings 
 #
