@@ -35,7 +35,12 @@ The code in this repo relies heavily on my [message_md](https://github.com/theph
 
 ## It's your data, go get it!
 
-This section desribes how to get the Signal chat `messages` out of the SQLite database and the identifiers (`conversation-id`) for each person and group.
+The tool needs two files of date exported from Signal's SQLite database:
+
+1. `messages.csv` - the actual messages
+2. `conversations.csv`  - the mapping of `conversation-id` to people and groups
+
+This steps below desribe how to get these two sets of data out of Signal.
 
 **Steps**
 
@@ -72,9 +77,13 @@ This part is tedious the first time and needs to be updated when you add new con
 
 Someday I can automate this but for now, no pain, no gain 🙂. 
 
-The next sections describes where to find the identifiers for people and groups.
+The next sections describes how people are identified and where to find the identifiers for groups. 
 
-### People and groups
+### People
+
+People are found in the `conversations.csv` file via their phone number in the `e164` column. The `conversations.csv` file is assumed to be under the source folder 
+
+### Groups
 
 1. Open the `conversations.csv` file in your favorite editor
 2. Look at the first row
@@ -84,31 +93,15 @@ The next sections describes where to find the identifiers for people and groups.
 ```
 ""id"":""a1760c87-d3d0-40f6-9992-ac0426efcc14""
 ""groupId"":""FdibKUgQIZPilWQu3jbgEB+tajc3RUKuoyYNZp4bRhQ=""
-""name"":""They get hooked!"
+""name"":""Family"
 ```
-
-4. If there's no `groupID` value, it's a person
-    - the `name` field will be the name of the person
-    - Find the `id` field
-
-```
-""id"":""a1760c87-d3d0-40f6-9992-ac0426efcc15""
-""groupId"":""""
-""name"":""SpongeBob"
-```
-
-5. Add the corresponding row to `groups.json` or `people.json`:
+4. Add the corresponding row to `groups.json`:
     - set group `id` to the `id` from `conversations.csv`
-    - set the `conversation-id`: 
-        - for a group, use the `groupID` from  Step 3
-        - for a person use `id` from Step 4
-    - set `slug`:
-        - come up with a one-word or hyphenated keyword (`slug`) for this person or group 
-        - the slug must match the frontmatter `slug` field value in the person's `person.md` profile so that messages can be correlated to the specific person in your notes
-        - Example: `spongebob`
-    - set `description` to `name` either the name from `conversations.csv` or something else e.g. "They get hooked!"
+    - set the `conversation-id` to the `groupID` from  Step 3
+    - set `slug` to a one-word or hyphenated keyword (`slug`) for this group 
+    - set `description` to the `name` either the name from `conversations.csv` or something else e.g. "Family"
      
-4. Repeat Steps 3 to 5 for every row
+4. Repeat Steps 3 and 4 for every row
 
 ## Using signal_sqlite_md
 
@@ -119,14 +112,14 @@ The [command line options](https://github.com/thephm/message_md#command-line-opt
 Example:
 
 ```
-# python3 signal_sqlite_md.py -c ../../dev-output/config -s ../../signal_sqlite/ -f messages_2023-12-25_21-36.csv -d -o ../../dev-output -m spongebob -b 2023-12-20
+# python3 signal_sqlite_md.py -c ../../dev-output/config -s ../../signal_sqlite/ -f messages.csv -d -o ../../dev-output -m spongebob -b 2023-12-20
 ```
 
 where: 
 
 - `c`onfig settings are in `../../dev-output/config`
 - `s`ource folder is `../../signal_sqlite`
-- `f`ile of CSV messages is `messages_2023-12-25_21-36.csv` in the `s`ource folder
+- `f`ile of CSV messages is `messages.csv` in the `s`ource folder
 - `o`utput the Markdown files to `../../dev-output`
 - `m`y slug is `spongebob`
 - `b`egin the export from `2023-12-20`

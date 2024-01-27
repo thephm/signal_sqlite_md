@@ -1,10 +1,11 @@
+import csv
 import time
 import json
-import csv
 from datetime import datetime, timezone
 import tzlocal # pip install tzlocal
 
 import sys
+import conversations
 sys.path.insert(1, '../message_md/')
 import message_md
 import config
@@ -42,7 +43,7 @@ JSON_QUOTE = "quote"
 JSON_QUOTE_ID = "id"
 JSON_QUOTE_TEXT = "text"
 
-messagesFile = "/mnt/c/data/signal_sqlite/messages.csv"
+# messagesFile = "/mnt/c/data/signal_sqlite/messages.csv"
 
 SignalFields = [
     SIGNAL_ROW_ID, SIGNAL_ID, SIGNAL_JSON, SIGNAL_SENT_AT, 
@@ -50,6 +51,16 @@ SignalFields = [
     SIGNAL_TYPE, SIGNAL_BODY
 ]
 
+# -----------------------------------------------------------------------------
+#
+# Parse the header row of the `messages.csv` file and map it to the fields
+#
+# Parameters:
+#
+#   - row - the header row
+#   - fieldMap - where the result goes
+#
+# -----------------------------------------------------------------------------
 def parseHeader(row, fieldMap):
 
     global SignalFields
@@ -61,6 +72,15 @@ def parseHeader(row, fieldMap):
                 fieldMap.append( [field, count] )
         count += 1
 
+# -----------------------------------------------------------------------------
+# Find the index for specific CSV field based from the `fieldMap`` on it's label
+#
+# Parameters:
+#
+#   - fieldLabel - the field label e.g. SIGNAL_SENT_AT
+#   - fieldMap - where the result goes
+#
+# -----------------------------------------------------------------------------
 def fieldIndex(fieldLabel, fieldMap):
 
     result = -1
@@ -83,6 +103,7 @@ def fieldIndex(fieldLabel, fieldMap):
 # returns:
 #
 # 977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81
+#
 # -----------------------------------------------------------------------------
 def getFileName(str):
     index = str.rfind("\\")
@@ -194,9 +215,8 @@ def parseAttachments(attachments, theMessage):
 #
 # Parameters:
 #
-#   - row - the row from the CSV
+#   - reactions - actual reactions in JSON format
 #   - theMessage - the target Message object where the values will go
-#   - fieldMap - the mapping of colums to their field names
 #
 # Notes:
 #
@@ -242,7 +262,7 @@ def parseReactions(reactions, theMessage):
                 print(e)
 
             if reactor:
-                reaction.sourceSlug = reactor.slug
+                reaction.fromSlug = reactor.slug
                 theMessage.reactions.append(reaction)
 
             count +=1
@@ -380,6 +400,7 @@ def parseTime(row, message, fieldMap):
 #   - row - comma spearated data for the specific message
 #   - message - the Message object where the data goes
 #   - fieldMap - the mapping of colums to their field names
+#   - me - the Person object representing me
 #
 # Returns
 #
@@ -426,14 +447,14 @@ def parsePeople(row, message, fieldMap, me):
         fromPerson = theConfig.getPersonByNumber(phoneNumber)
  
     if fromPerson and len(fromPerson.slug):
-        message.sourceSlug = fromPerson.slug
+        message.fromSlug = fromPerson.slug
 
-        # only need the from person (sourceSlug) because for group 
+        # only need the from person (fromSlug) because for group 
         # messages originating from me have me as "source"
         found = True
 
         if toPerson and len(toPerson.slug):
-            message.destinationSlug = toPerson.slug
+            message.toSlugs.append(toPerson.slug)
 
     messageIdIndex = fieldIndex(SIGNAL_ID, fieldMap)
     message.id = row[messageIdIndex]
@@ -462,9 +483,7 @@ def parseRow(row, message, fieldMap):
 
     theConfig = config.Config()
 
-    me = theConfig.getMe()
-
-    if parsePeople(row, message, fieldMap, me):
+    if parsePeople(row, message, fieldMap, theConfig.me):
 
         typeIndex = fieldIndex(SIGNAL_TYPE, fieldMap)
         type = row[typeIndex]
@@ -520,10 +539,10 @@ def loadMessages(fileName, messages, reactions, theConfig):
                 theMessage = message.Message()
                 if parseRow(row, theMessage, fieldMap):
                     messages.append(theMessage)
-
             count += 1
     
     return count
+
 
 # main
 
@@ -533,6 +552,9 @@ theReactions = []
 theConfig = config.Config()
 
 if message_md.setup(theConfig, markdown.YAML_SERVICE_SIGNAL, True):
+
+    # load the conversation ID for each person
+    conversations.parseConversationsFile(theConfig)
 
     theConfig.reversed = False
 
