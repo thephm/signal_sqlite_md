@@ -439,7 +439,7 @@ def parsePeople(row, message, fieldMap, me):
         # if it's a group slug then this call would generate an 
         # error since it won't find the person and that could 
         # confuse the user
-        toPerson = theConfig.getPersonByConversationId( id )
+        toPerson = theConfig.getPersonByConversationId(id)
 
     if type in [SIGNAL_OUTGOING]:
         fromPerson = me

@@ -46,6 +46,7 @@ This steps below desribe how to get these two sets of data out of Signal.
 
 1. Install DB Browser for SQLite - [2]
 	- *NOTE: I had to try multiple older versions before I got one that would open the file*
+    - the one that worke for me was v3.13 from https://nightlies.sqlitebrowser.org/win64-prerelease/
 2. Find the **key** to your SQLite DB, see [1]
     - For me, on Windows, with user `micro` it was here: `C:\Users\micro\AppData\Roaming\Signal\config.json`
 3. Find the **path** to your Signal `db.sqlite` database file
@@ -63,6 +64,7 @@ This steps below desribe how to get these two sets of data out of Signal.
     - Mine were under: `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
 11. Copy the attachments to the same folder (no subfolders) as the CSV file
     - the `cp_signal_attachments.sh` shell script made it easier for me
+    - I had to use `dos2unix` on that shell script file before it worked
     - *NOTE: I can improve this later to get the files directly, being lazy!*
 
 ## Setting up the config files
@@ -87,7 +89,12 @@ People are found in the `conversations.csv` file via their phone number in the `
 
 1. Open the `conversations.csv` file in your favorite editor
 2. Look at the first row
-3. If there's a `groupId` field value, that's a group
+
+```
+id,json,active_at,type,members,name,profileName,profileFamilyName,profileFullName,e164,serviceId,groupId,profileLastFetchedAt
+```
+
+3. If there's a `groupId` field value on a given row, then that's a group
     - the `name` field will tell you the name of the group
 
 ```
@@ -95,6 +102,7 @@ People are found in the `conversations.csv` file via their phone number in the `
 ""groupId"":""FdibKUgQIZPilWQu3jbgEB+tajc3RUKuoyYNZp4bRhQ=""
 ""name"":""Family"
 ```
+
 4. Add the corresponding row to `groups.json`:
     - set group `id` to the `id` from `conversations.csv`
     - set the `conversation-id` to the `groupID` from  Step 3
