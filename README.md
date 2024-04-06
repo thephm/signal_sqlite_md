@@ -51,7 +51,7 @@ This steps below desribe how to get these two sets of data out of Signal.
     - For me, on Windows, with user `micro` it was here: `C:\Users\micro\AppData\Roaming\Signal\config.json`
 3. Find the **path** to your Signal `db.sqlite` database file
     - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\`
-4. Launch "DB Browser for SQLite"
+4. Launch "DB Browser for SQLite (SQLCipher)" -- not the one without `(SQLCipher)`
 5. Click "Open Database"
 6. Choose `Raw key` from the menu to the right of the "Password" field
 7. In the "Password" field, type `0x` and then paste the **key** you found in step 2
