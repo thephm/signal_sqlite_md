@@ -16,6 +16,8 @@ The SQLite DB is encrypted but it's easy to decrypt because you have the key!
 
 The attachments are not in the DB, they're stored in the file system in a series of folders with 2 digit Hex labels. The files have names like "`000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7`" with no suffix but don't worry, that info is in the DB and the script takes care of adding the suffix e.g. "`.jpg`".
 
+Another approach would be to query the SQLite DB directly on device but that's a future thing for me. A good reference is https://github.com/idanlevin/signal-query
+
 ## Dependencies
 
 The code in this repo relies heavily on my [message_md](https://github.com/thephm/message_md) classes which contain generic `Message`, `Person`, `Group` and other classes and the methods to convert messages to Markdown files. Be sure to read the `README` and the configuration guide for that repo first. 

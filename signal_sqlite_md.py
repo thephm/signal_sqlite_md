@@ -6,6 +6,7 @@ import tzlocal # pip install tzlocal
 
 import sys
 import conversations
+import signal_message
 sys.path.insert(1, '../message_md/')
 import message_md
 import config
@@ -14,22 +15,23 @@ import message
 import person
 import attachment
 
-SIGNAL_ROW_ID = "rowid"
-SIGNAL_ID = "id"
-SIGNAL_JSON = "json"
-SIGNAL_SENT_AT = "sent_at"
-SIGNAL_CONVERSATION_ID = "conversationId"
-SIGNAL_SOURCE = "source"
-SIGNAL_HAS_ATTACHMENTS = "hasAttachments"
-SIGNAL_TYPE = "type"
-SIGNAL_BODY = "body"
+SIGNAL_ID = "id"           # Unique identifier for the message
+SIGNAL_ROW_ID = "rowid"    # Row ID in the SQLite table
+SIGNAL_JSON = "json"       # JSON representation of the message
+SIGNAL_SENT_AT = "sent_at" # Timestamp when the message was sent
+SIGNAL_CONVERSATION_ID = "conversationId" # Identifier for conversation thread
+SIGNAL_SOURCE = "source"   # Address (phone number) of the sender/recipient
+SIGNAL_HAS_ATTACHMENTS = "hasAttachments" # Whether the message has attachments
+SIGNAL_TYPE = "type"       # Type of the message (incoming, outgoing, etc.)
+SIGNAL_BODY = "body"       # Content of the message
 
-SIGNAL_INCOMING = "incoming"
-SIGNAL_OUTGOING = "outgoing"
+SIGNAL_INCOMING = "incoming"  # Incoming message from another user
+SIGNAL_OUTGOING = "outgoing"  # Outgoing message sent by the user
 
 JSON_REACTIONS = "reactions"
 JSON_ATTACHMENTS = "attachments"
 JSON_TIMESTAMP = "timestamp"
+JSON_SOURCE_SERVICE_ID = "sourceServiceId"  # Service ID of the sender/recipient 
 JSON_FROM_ID = "fromId"
 JSON_EMOJI = "emoji"
 JSON_TARGET_TIMESTAMP = "targetTimestamp"
@@ -58,10 +60,10 @@ SignalFields = [
 # Parameters:
 #
 #   - row - the header row
-#   - fieldMap - where the result goes
+#   - field_map - where the result goes
 #
 # -----------------------------------------------------------------------------
-def parseHeader(row, fieldMap):
+def parse_header(row, field_map):
 
     global SignalFields
 
@@ -69,24 +71,25 @@ def parseHeader(row, fieldMap):
     for col in row:
         for field in SignalFields:
             if col == field:
-                fieldMap.append( [field, count] )
+                field_map.append( [field, count] )
         count += 1
 
 # -----------------------------------------------------------------------------
-# Find the index for specific CSV field based from the `fieldMap`` on it's label
+#
+# Find the index for specific CSV field based from the `field_map`` on it's label
 #
 # Parameters:
 #
-#   - fieldLabel - the field label e.g. SIGNAL_SENT_AT
-#   - fieldMap - where the result goes
+#   - field_label - the field label e.g. SIGNAL_SENT_AT
+#   - field_map - where the result goes
 #
 # -----------------------------------------------------------------------------
-def fieldIndex(fieldLabel, fieldMap):
+def field_index(field_label, field_map):
 
     result = -1
 
-    for field in fieldMap:
-        if field[0] == fieldLabel:
+    for field in field_map:
+        if field[0] == field_label:
             result = field[1]
             break
 
@@ -94,7 +97,7 @@ def fieldIndex(fieldLabel, fieldMap):
 
 # -----------------------------------------------------------------------------
 # 
-# Get the filename from "path" attribute in "attachments"
+# Get the filename from "path" attribute in "attachments".
 #
 # Example:
 #
@@ -105,7 +108,8 @@ def fieldIndex(fieldLabel, fieldMap):
 # 977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81
 #
 # -----------------------------------------------------------------------------
-def getFileName(str):
+def get_filename(str):
+
     index = str.rfind("\\")
     
     if index != -1:
@@ -123,7 +127,7 @@ def getFileName(str):
 # Parameters:
 # 
 #   - data - the JSON data
-#   - theMessage - the target Message object where the values will go
+#   - the_message - the target Message object where the values will go
 #
 # Notes:
 # 
@@ -153,57 +157,57 @@ def getFileName(str):
 #   - the number of attachments
 #
 # -----------------------------------------------------------------------------
-def parseAttachments(attachments, theMessage):
+def parse_attachments(attachments, the_message):
 
     count = 0
 
     if attachments:
-        for attachmentJSON in attachments:
+        for attachment_json in attachments:
 
-            attachmentX = attachment.Attachment()
+            attachment_x = attachment.Attachment()
 
             # need the attachment "id" and content type
             try:
-                attachmentX.id = getFileName(attachmentJSON[JSON_ATTACHMENT_PATH])
+                attachment_x.id = get_filename(attachment_json[JSON_ATTACHMENT_PATH])
 
                 try:
-                    attachmentX.type = attachmentJSON[JSON_ATTACHMENT_CONTENT_TYPE]
+                    attachment_x.type = attachment_json[JSON_ATTACHMENT_CONTENT_TYPE]
                 except:
                     pass
                     
                 try:
-                    attachmentX.fileName = attachmentJSON[JSON_ATTACHMENT_FILENAME]
+                    attachment_x.fileName = attachment_json[JSON_ATTACHMENT_FILENAME]
                 except:
                     pass
 
                 try:
-                    attachmentX.size = attachmentJSON[JSON_ATTACHMENT_SIZE]
+                    attachment_x.size = attachment_json[JSON_ATTACHMENT_SIZE]
                 except:
-                    if theConfig.debug:
+                    if the_config.debug:
                         print("Failed to parse attachment additional info. " + e)
                     pass
                 
                 try:
-                    attachmentX.width = attachmentJSON[JSON_ATTACHMENT_WIDTH]
+                    attachment_x.width = attachment_json[JSON_ATTACHMENT_WIDTH]
                 except Exception as e:
-                    if theConfig.debug:
+                    if the_config.debug:
                         print("Failed to parse attachment additional info. " + e)
                     pass
 
                 try:
-                    attachmentX.height = attachmentJSON[JSON_ATTACHMENT_HEIGHT]                    
+                    attachment_x.height = attachment_json[JSON_ATTACHMENT_HEIGHT]                    
                 except Exception as e:
-                    if theConfig.debug:
+                    if the_config.debug:
                         print("Failed to parse attachment additional info. " + e)
                     pass
 
             except Exception as e:
-                if theConfig.debug:
+                if the_config.debug:
                     print("Failed to parse attachment. " + e)
                 pass
 
-            if attachmentX.id and attachmentX.type:
-                theMessage.attachments.append(attachmentX)
+            if attachment_x.id and attachment_x.type:
+                the_message.attachments.append(attachment_x)
                 count += 1
 
     return count
@@ -216,7 +220,7 @@ def parseAttachments(attachments, theMessage):
 # Parameters:
 #
 #   - reactions - actual reactions in JSON format
-#   - theMessage - the target Message object where the values will go
+#   - the_message - the target Message object where the values will go
 #
 # Notes:
 #
@@ -241,29 +245,29 @@ def parseAttachments(attachments, theMessage):
 #   - number of reactions
 #
 # -----------------------------------------------------------------------------
-def parseReactions(reactions, theMessage):
+def parse_reactions(reactions, the_message):
 
     count = 0
 
-    theConfig = config.Config()
+    the_config = config.Config()
 
     if reactions:
-        for reactionJSON in reactions:
+        for reaction_json in reactions:
             reaction = message.Reaction()
-            reaction.emoji = reactionJSON[JSON_EMOJI]
-            reaction.timestamp = reactionJSON[JSON_TIMESTAMP]
-            reaction.targetTimeSent = reactionJSON[JSON_TARGET_TIMESTAMP]
+            reaction.emoji = reaction_json[JSON_EMOJI]
+            reaction.timestamp = reaction_json[JSON_TIMESTAMP]
+            reaction.target_time_sent = reaction_json[JSON_TARGET_TIMESTAMP]
             
-            fromId = str(reactionJSON[JSON_FROM_ID])
+            from_id = str(reaction_json[JSON_FROM_ID])
             reactor = person.Person()
             try:
-                reactor = theConfig.getPersonByConversationId( fromId )
+                reactor = the_config.get_person_by_conversation_id(from_id)
             except Exception as e:
                 print(e)
 
             if reactor:
-                reaction.fromSlug = reactor.slug
-                theMessage.reactions.append(reaction)
+                reaction.from_slug = reactor.slug
+                the_message.reactions.append(reaction)
 
             count +=1
 
@@ -271,14 +275,12 @@ def parseReactions(reactions, theMessage):
 
 # -----------------------------------------------------------------------------
 #
-# If this is a reply, process it
-#
-# The quoted reply is part of the JSON portion of the CSV row.
+# If this is a reply, parse it.
 #
 # Parameters:
 #
 #   - data - the "quote" data
-#   - theMessage - where to put the reply
+#   - the_message - where to put the reply
 #
 # Example:
 #
@@ -293,30 +295,37 @@ def parseReactions(reactions, theMessage):
 #   - id - the timestamp of the original message
 #   - authorUuid - the unique ID of the person who sent the message
 #   - text - the actual reply
+#
+# Notes:
+# 
+#   - The quoted reply is part of the JSON portion of the CSV row.
+# 
 # 
 # -----------------------------------------------------------------------------
-def parseQuote(data, theMessage):
+def parse_quote(data, the_message):
 
     try:
-        theMessage.quote.id = data[JSON_QUOTE_ID]
-        theMessage.quote.text = data[JSON_QUOTE_TEXT]
+        the_message.quote.id = data[JSON_QUOTE_ID]
+        the_message.quote.text = data[JSON_QUOTE_TEXT]
     except:
         pass
 
 # -----------------------------------------------------------------------------
 #
-# Parse the `json` portion of the message into a Reaction object. Luckily, they
-# store the reactions right in the message row.
+# Parse the `json` portion of the message into a Reaction object and adds the
+# source service ID and attachment IDs.
 #
 # Parameters:
 #
 #   - row - the row from the CSV
-#   - theMessage - the target Message object where the values will go
-#   - fieldMap - the mapping of colums to their field names
+#   - the_message - the target Message object where the values will go
+#   - field_map - the mapping of colums to their field names
 #
 # Notes:
 #
-# - These are the key parts of the `json` 
+#   - The reactions are stored right inside the message row
+#     or received (?) the message. 
+#   - These are the key parts of the `json` 
 #
 #   {
 #       ""timestamp"":1703540110922,
@@ -324,82 +333,125 @@ def parseQuote(data, theMessage):
 #       ""id"":""96b26f51-d1fe-4159-8721-57356f88d2ad"",
 #       ""conversationId"":""a1760c87-d3d0-40f6-9992-ac0426efcc14"",
 #       ""source"":""+12894005633"",
-#       ""reactions"":[]
+#       ""reactions"":[],
+#       ""sourceServiceId"":""5965a5d4-7f37-4d48-8cdd-4c6ee99afe70""
 #   }
 #
+#   where: 
+#  
+#   - `id` uniquely identifies the specific message
+#   - `conversationId` uniquely identifies the conversation thread
+#   - `sourceServiceId` uniquely identifies the person who sent
+# 
 # Returns:
 #
 #   - number of reactions + attachments
 #
 # -----------------------------------------------------------------------------
-def parseJSON(row, theMessage, fieldMap):
+def parse_json(row, the_message, field_map):
 
-    numReactions = 0
-    numAttachments = 0
+    num_reactions = 0
+    num_attachments = 0
 
-    jsonIndex = fieldIndex(SIGNAL_JSON, fieldMap)
-    data = row[jsonIndex]
+    json_index = field_index(SIGNAL_JSON, field_map)
+    data = row[json_index]
 
     try:
-        jsonData = json.loads(data)
+        json_data = json.loads(data)
     except Exception as e:
-        print(theMessage.id + ": " + e)
+        print(the_message.id + ": " + e)
 
     try:
-        numReactions = parseReactions(jsonData[JSON_REACTIONS], theMessage)
+        num_reactions = parse_reactions(json_data[JSON_REACTIONS], the_message)
     except:
         pass
 
     try:
-        numAttachments = parseAttachments(jsonData[JSON_ATTACHMENTS], theMessage)
+        num_attachments = parse_attachments(json_data[JSON_ATTACHMENTS], the_message)
     except:
         pass
-
     
     try:
-        parseQuote(jsonData[JSON_QUOTE], theMessage)
+        parse_quote(json_data[JSON_QUOTE], the_message)
     except:
         pass
 
-    return numReactions + numAttachments
+    try:
+        the_message.source_service_id = json_data[JSON_SOURCE_SERVICE_ID]
+        if the_message.id == "ac4aa1c2-3636-4603-957b-8a75d6d29961":
+            print(str(the_message))
+            print("the_message.source_service_id=" + the_message.source_service_id )
+    except Exception as e:  
+        pass
+
+    return num_reactions + num_attachments
+
+# -------------------------------------------------------------------------
+#
+# Lookup a person in the `Config.people` array by their Service ID.
+#
+# Parameters:
+# 
+#   - id - `serviceId` for the person
+#
+# Returns:
+#
+#   - False if no person found
+#   - Person object if found 
+#
+# -------------------------------------------------------------------------
+def get_person_by_service_id(id):
+
+    the_config = config.Config()
+
+    if len(id):
+        for the_person in the_config.people:
+            try:
+                if the_person.service_id == id:
+                    return the_person
+            except Exception as e:
+                print(e)
+                pass
+            
+    return False
 
 # -----------------------------------------------------------------------------
 #
-# Parse the date and time from a comma-separated row into a Message
+# Parse the date and time from a comma-separated row into the Message object.
 #
 # Parameters:
 # 
 #   - row - comma spearated data for the specific message
 #   - message - the Message object where the data goes
-#   - fieldMap - the mapping of colums to their field names
+#   - field_map - the mapping of colums to their field names
 #
 # Notes:
 #
 #   - example date/time `2023-06-11 15:33:58 UTC`
 #
 # -----------------------------------------------------------------------------
-def parseTime(row, message, fieldMap):
+def parse_time(row, message, field_map):
     
-    timeIndex = fieldIndex(SIGNAL_SENT_AT, fieldMap)
+    time_index = field_index(SIGNAL_SENT_AT, field_map)
 
-    timestamp = int(row[timeIndex])
-    timeInSeconds = int(timestamp/1000)
+    timestamp = int(row[time_index])
+    time_in_seconds = int(timestamp/1000)
 
     # convert the time seconds since epoch to a time.struct_time object
-    message.time = time.localtime(timeInSeconds)
+    message.time = time.localtime(time_in_seconds)
 
-    message.timeStamp = time.mktime(message.time)
-    message.setDateTime()
+    message.timestamp = time.mktime(message.time)
+    message.set_date_time()
 
 # -----------------------------------------------------------------------------
 #
-# Parse the People from a comma-separated row into a Message
+# Parse the People from a comma-separated row into a Message.
 #
 # Parameters:
 # 
 #   - row - comma spearated data for the specific message
 #   - message - the Message object where the data goes
-#   - fieldMap - the mapping of colums to their field names
+#   - field_map - the mapping of colums to their field names
 #   - me - the Person object representing me
 #
 # Returns
@@ -408,68 +460,77 @@ def parseTime(row, message, fieldMap):
 #   - False - if either is not found
 #
 # -----------------------------------------------------------------------------
-def parsePeople(row, message, fieldMap, me):
+def parse_people(row, message, field_map, me):
 
-    theConfig = config.Config()
+    the_config = config.Config()
 
     found = False
 
-    typeIndex = fieldIndex(SIGNAL_TYPE, fieldMap)
-    type = row[typeIndex]
+    message.id = row[field_index(SIGNAL_ID, field_map)]
+
+    type = row[field_index(SIGNAL_TYPE, field_map)]
 
     if type not in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
         return found
 
-    phoneIndex = fieldIndex(SIGNAL_SOURCE, fieldMap)
-    phoneNumber = row[phoneIndex]
+    phone_index = field_index(SIGNAL_SOURCE, field_map)
+    phone_number = row[phone_index]
 
-    conversationIdIndex = fieldIndex(SIGNAL_CONVERSATION_ID, fieldMap)
-    id = row[conversationIdIndex]
+    conversation_id_index = field_index(SIGNAL_CONVERSATION_ID, field_map)
+    id = row[conversation_id_index]
 
     # see if it's a group message by checking the `conversation_id`
-    groupSlug = theConfig.getGroupSlugByConversationId(id)
-    if groupSlug:
-        message.groupSlug = groupSlug
+    group_slug = the_config.get_group_slug_by_conversation_id(id)
+    if group_slug:
+        message.group_slug = group_slug
 
-    toPerson = person.Person()
+    to_person = person.Person()
 
+    # see who the message is to
     if type in [SIGNAL_INCOMING]:
-        toPerson = me
-    elif not groupSlug:
+        to_person = me
+    elif not group_slug:
         # if it's a group slug then this call would generate an 
         # error since it won't find the person and that could 
         # confuse the user
-        toPerson = theConfig.getPersonByConversationId(id)
+        to_person = the_config.get_person_by_conversation_id(id)
 
+    # see who the message is from
     if type in [SIGNAL_OUTGOING]:
-        fromPerson = me
+        from_person = me
     else:
-        fromPerson = theConfig.getPersonByNumber(phoneNumber)
- 
-    if fromPerson and len(fromPerson.slug):
-        message.fromSlug = fromPerson.slug
+        from_person = the_config.get_person_by_conversation_id(id)
 
-        # only need the from person (fromSlug) because for group 
+        # if couldn't get them by the convo ID, likely a group so 
+        # try the `sourceServiceId` which is inside the json portion
+        # 5965a5d4-7f37-4d48-8cdd-4c6ee99afe70
+        if not from_person:
+            service_id = message.source_service_id
+            if service_id: 
+                from_person = get_person_by_service_id(service_id)
+        
+    if from_person and len(from_person.slug):
+        message.from_slug = from_person.slug
+
+        # only need the from person (from_slug) because for group 
         # messages originating from me have me as "source"
         found = True
 
-        if toPerson and len(toPerson.slug):
-            message.toSlugs.append(toPerson.slug)
-
-    messageIdIndex = fieldIndex(SIGNAL_ID, fieldMap)
-    message.id = row[messageIdIndex]
+        if to_person and len(to_person.slug):
+            message.to_slugs.append(to_person.slug)
 
     return found
 
 # -----------------------------------------------------------------------------
 #
-# Parse one comma-separated row into a Message object
+# Parse one comma-separated row of the Signal `messages` CSV file into a 
+# Message object.
 #
 # Parameters:
 # 
 #   - row - comma spearated data for the specific message
 #   - message - the Message object where the data goes
-#   - fieldMap - the mapping of colums to their field names
+#   - field_map - the mapping of colums to their field names
 #
 # Returns:
 #
@@ -477,33 +538,53 @@ def parsePeople(row, message, fieldMap, me):
 #   - False - if not
 # 
 # -----------------------------------------------------------------------------
-def parseRow(row, message, fieldMap):
+def parse_row(row, message, field_map):
    
     result = False
 
-    theConfig = config.Config()
+    the_config = config.Config()
 
-    if parsePeople(row, message, fieldMap, theConfig.me):
+    # see if it's incoming our outgoing
+    type = row[field_index(SIGNAL_TYPE, field_map)]
 
-        typeIndex = fieldIndex(SIGNAL_TYPE, fieldMap)
-        type = row[typeIndex]
+    # only deal with "incoming" and "outgoing" messages
+    if type in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
 
-        if type in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
+        body_index = field_index(SIGNAL_BODY, field_map)
+        message.body = row[body_index]
 
-            bodyIndex = fieldIndex(SIGNAL_BODY, fieldMap)
-            body = row[bodyIndex]
-            
-            message.body = body
+        # parse the `json` portion of the message into a Reaction and
+        # include it inside the Message object.
+        try:
+            parse_json(row, message, field_map)
+        except:
+            pass
 
-            try:
-                parseJSON(row, message, fieldMap)
-            except:
-                pass
+    # find out who the people are in the conversation, i.e. who the
+    # message is from and to 
+    if parse_people(row, message, field_map, the_config.me):
 
-            # add the message if there's a body or attachment(s)
-            if len(body) or len(message.attachments):
-                parseTime(row, message, fieldMap)
-                result = True
+        # only gets here if we figured out who they are, i.e. they're
+        # in our `people.json` config file otherwise we won't be able to
+        # attribute messages to people.
+
+        # only deal with "incoming" and "outgoing" messages
+#       if type in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
+
+#            body_index = field_index(SIGNAL_BODY, field_map)
+#            message.body = row[body_index]
+
+            # parse the `json` portion of the message into a Reaction and
+            # include it inside the Message object.
+#            try:
+#                parse_json(row, message, field_map)
+#            except:
+#                pass
+
+        # only add the message if there's a body or attachment(s)
+        if len(message.body) or len(message.attachments):
+            parse_time(row, message, field_map)
+            result = True
 
     return result
 
@@ -513,10 +594,10 @@ def parseRow(row, message, fieldMap):
 #
 # Parameters:
 # 
-#   - fileName - the CSV file
+#   - filename - the CSV file
 #   - messages - where the Message objects will go
 #   - reactions - not used
-#   - theConfig - specific settings 
+#   - the_config - specific settings 
 #
 # Notes
 #   - the first row is the header row, parse it in case the field order changes
@@ -524,40 +605,39 @@ def parseRow(row, message, fieldMap):
 # Returns: the number of messages
 #
 # -----------------------------------------------------------------------------
-def loadMessages(fileName, messages, reactions, theConfig):
+def load_messages(filename, messages, reactions, the_config):
 
-    fieldMap = []
+    field_map = []
 
-    with open(fileName, 'r') as csv_file:
+    with open(filename, 'r') as csv_file:
         reader = csv.reader(csv_file)
 
         count = 0
         for row in reader:
             if count == 0:
-                parseHeader(row, fieldMap)
+                parse_header(row, field_map)
             else:
-                theMessage = message.Message()
-                if parseRow(row, theMessage, fieldMap):
-                    messages.append(theMessage)
+                the_message = signal_message.SignalMessage()
+                if parse_row(row, the_message, field_map):
+                    messages.append(the_message)
             count += 1
     
     return count
 
-
 # main
 
-theMessages = []
-theReactions = [] 
+the_messages = []
+the_reactions = [] 
 
-theConfig = config.Config()
+the_config = config.Config()
 
-if message_md.setup(theConfig, markdown.YAML_SERVICE_SIGNAL, True):
+if message_md.setup(the_config, markdown.YAML_SERVICE_SIGNAL, True):
 
     # load the conversation ID for each person
-    conversations.parseConversationsFile(theConfig)
+    conversations.parse_conversations_file(the_config)
 
-    theConfig.reversed = False
+    the_config.reversed = False
 
     # needs to be after setup so the command line parameters override the
     # values defined in the settings file
-    message_md.getMarkdown(theConfig, loadMessages, theMessages, theReactions)
+    message_md.get_markdown(the_config, load_messages, the_messages, the_reactions)
