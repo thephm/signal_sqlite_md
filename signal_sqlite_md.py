@@ -184,26 +184,26 @@ def parse_attachments(attachments, the_message):
                     attachment_x.size = attachment_json[JSON_ATTACHMENT_SIZE]
                 except:
                     if the_config.debug:
-                        print("Failed to parse attachment additional info. " + e)
+                        print('Failed to parse attachment additional info. ' + e)
                     pass
                 
                 try:
                     attachment_x.width = attachment_json[JSON_ATTACHMENT_WIDTH]
                 except Exception as e:
                     if the_config.debug:
-                        print("Failed to parse attachment additional info. " + e)
+                        print('Failed to parse attachment additional info. ' + e)
                     pass
 
                 try:
                     attachment_x.height = attachment_json[JSON_ATTACHMENT_HEIGHT]                    
                 except Exception as e:
                     if the_config.debug:
-                        print("Failed to parse attachment additional info. " + e)
+                        print('Failed to parse attachment additional info. ' + e)
                     pass
 
             except Exception as e:
                 if the_config.debug:
-                    print("Failed to parse attachment. " + e)
+                    print('Failed to parse attachment. ' + e)
                 pass
 
             if attachment_x.id and attachment_x.type:
@@ -376,14 +376,6 @@ def parse_json(row, the_message, field_map):
     except:
         pass
 
-    try:
-        the_message.source_service_id = json_data[JSON_SOURCE_SERVICE_ID]
-        if the_message.id == "ac4aa1c2-3636-4603-957b-8a75d6d29961":
-            print(str(the_message))
-            print("the_message.source_service_id=" + the_message.source_service_id )
-    except Exception as e:  
-        pass
-
     return num_reactions + num_attachments
 
 # -------------------------------------------------------------------------
@@ -490,9 +482,8 @@ def parse_people(row, message, field_map, me):
     if type in [SIGNAL_INCOMING]:
         to_person = me
     elif not group_slug:
-        # if it's a group slug then this call would generate an 
-        # error since it won't find the person and that could 
-        # confuse the user
+        # if it's a group slug then this call would generate an error since it
+        # won't find the person and that could confuse the user
         to_person = the_config.get_person_by_conversation_id(id)
 
     # see who the message is from
@@ -501,9 +492,8 @@ def parse_people(row, message, field_map, me):
     else:
         from_person = the_config.get_person_by_conversation_id(id)
 
-        # if couldn't get them by the convo ID, likely a group so 
-        # try the `sourceServiceId` which is inside the json portion
-        # 5965a5d4-7f37-4d48-8cdd-4c6ee99afe70
+        # if couldn't get them by the convo ID, it is likely a group so try the 
+        # `sourceServiceId` which is inside the json portion
         if not from_person:
             service_id = message.source_service_id
             if service_id: 
@@ -564,24 +554,9 @@ def parse_row(row, message, field_map):
     # message is from and to 
     if parse_people(row, message, field_map, the_config.me):
 
-        # only gets here if we figured out who they are, i.e. they're
-        # in our `people.json` config file otherwise we won't be able to
-        # attribute messages to people.
+        # we get here if we figured out who they are
 
-        # only deal with "incoming" and "outgoing" messages
-#       if type in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
-
-#            body_index = field_index(SIGNAL_BODY, field_map)
-#            message.body = row[body_index]
-
-            # parse the `json` portion of the message into a Reaction and
-            # include it inside the Message object.
-#            try:
-#                parse_json(row, message, field_map)
-#            except:
-#                pass
-
-        # only add the message if there's a body or attachment(s)
+        # add the message if there's a body or attachment(s)
         if len(message.body) or len(message.attachments):
             parse_time(row, message, field_map)
             result = True

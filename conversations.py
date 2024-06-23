@@ -13,6 +13,7 @@
 import os
 import csv
 import json
+import re
 
 import sys
 sys.path.insert(1, '../message_md/')
@@ -93,6 +94,84 @@ def field_index(field_label, field_map):
 
 # -----------------------------------------------------------------------------
 #
+# Convert a person's name to a slug.
+#
+# Parameters:
+#
+#   - full_name - person's full name e.g. "Bob Smith"
+#
+# Returns:
+# 
+#   - slug of the name e.g. "bob_smith"
+#
+# -----------------------------------------------------------------------------
+def get_slug(full_name):
+
+    # replace spaces and slashes with underscores first
+    slug = re.sub(r'[ /]+', '_', full_name)
+
+    # insert underscores before capital letters and convert to lowercase
+    slug = re.sub(r'(?<!^)(?=[A-Z])', '_', slug).lower()
+
+    # remove double underscores
+    slug = re.sub(r'_+', '_', slug)
+
+    return slug
+
+# -----------------------------------------------------------------------------
+#
+# Get a person's last name from their full name.
+#
+# Parameters:
+#
+#   - full_name - person's full name e.g. "Bob Smith"
+#
+# Returns:
+#
+#   - the righmost part of the string after the last space e.g. "Smith"
+#
+# -----------------------------------------------------------------------------
+def get_last_name(full_name):
+
+    # split the full name by spaces
+    name_parts = full_name.split()
+    
+    # if there is only one word (no spaces), return an empty string
+    if len(name_parts) == 1:
+        return ''
+    else: 
+        # return the last element of the list as the last name
+        return name_parts[-1].capitalize() if name_parts else ''
+    
+# -----------------------------------------------------------------------------
+#
+# Get a person's first name from their full name.
+#
+# Parameters:
+#
+#   - full_name - person's full name e.g. "Bob Smith"
+#
+# Returns:
+#
+#   - the first word e.g. "Bob"
+#
+# -----------------------------------------------------------------------------
+def get_first_name(name):
+
+    # get the text up to the first space
+    name = name.split()[0]
+
+    # split it into words if there are '-' e.g. "marc-andre"
+    parts = name.split('-')
+
+    # capitalize the words e.g. "Marc" and "Andre"
+    capitalized_parts = [part.capitalize() for part in parts]
+
+    # join them back together e.g. "Marc-Andre"
+    return '-'.join(capitalized_parts)
+
+# -----------------------------------------------------------------------------
+#
 # Grab the conversation info from the row and store it in the corresponding
 # Person object so it can be used later.
 #
@@ -102,15 +181,28 @@ def field_index(field_label, field_map):
 #   - field_map - mapping of the headers to the fields
 #   - row - a row from the `conversations` CSV file
 #
+# Notes:
+#
+#   - 4 x name columns: `name, profileName, familyName, fullName`
+#   - in my file there are 45, 30, 16, 30 of them, respectively
+#   - sometimes the `profileName` and `fullName` are the same (qty 9) but in 
+#     other cases, it's just their first name (qty 14)
+#   - SO, if the person can't be found by their phone number, and the option
+#     to create people on the fly is True, take the `fullName` first, making
+#     it snake_case. If it doesn't exist, then use `profileName`. If no 
+#     profileName is found, ignore it
+#
 # -----------------------------------------------------------------------------
 def store_conversation_info(the_config, field_map, row):
 
-    the_person = person.Person()
-
     e164 = row[field_index(CONVERSATION_E164, field_map)]
     phone = e164[-10:]
+    slug = ""
     
     id = row[field_index(CONVERSATION_ID, field_map)]
+
+    # grab the name fields
+    profile_name = row[field_index(CONVERSATION_PROFILE_NAME, field_map)]
     full_name = row[field_index(CONVERSATION_PROFILE_FULL_NAME, field_map)]
 
     # first, see if we can find the person using their phone number
@@ -118,16 +210,33 @@ def store_conversation_info(the_config, field_map, row):
         the_person = the_config.get_person_by_number(phone)
     except:
         pass
-        
+
     # if couldn't find them with the phone number, try their profile full name
     if not the_person:
-        try:
-            the_person = the_config.get_person_by_full_name(full_name)
-        except Exception as e:
-            print(e)
-            print("Could not find a person with phone '" + str(phone) + "' " )
-            if len(full_name):
-                print("or by full name: '" + full_name + "'")
+        the_person = the_config.get_person_by_full_name(full_name)
+
+        # if the option to create people on the fly who are not in  
+        # the `people.json` file, use the `fullName` or `profileName`
+        if not the_person and the_config.create_people:
+            the_person = person.Person()
+            if full_name:
+                slug = get_slug(full_name)
+                first_name = get_first_name(full_name)
+            elif profile_name:
+                slug = get_slug(profile_name)
+                first_name = get_first_name(profile_name)
+            if slug:
+                # add the person to the config
+                the_person.slug = slug
+                the_person.first_name = first_name.capitalize()
+                the_person.last_name = get_last_name(full_name)
+                the_person.full_name = the_person.first_name + " " + the_person.last_name.capitalize()
+                if e164:
+                    the_person.mobile = e164
+                the_config.people.append(the_person)
+            else:
+                print(e)
+                print("Could not find a person by phone '" + str(phone) + "' or by full name '" + full_name + "'")
 
     # get the `ServiceId` value which me thinks is the unique ID for person.
     # this is needed to figure out who replied to group messages as those 
