@@ -184,26 +184,30 @@ def parse_attachments(attachments, the_message):
                     attachment_x.size = attachment_json[JSON_ATTACHMENT_SIZE]
                 except:
                     if the_config.debug:
-                        print('Failed to parse attachment additional info. ' + e)
+                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_SIZE)
+                        print(error_str + ' ' + e)
                     pass
                 
                 try:
                     attachment_x.width = attachment_json[JSON_ATTACHMENT_WIDTH]
                 except Exception as e:
                     if the_config.debug:
-                        print('Failed to parse attachment additional info. ' + e)
+                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_WIDTH)
+                        print(error_str + ' ' + e)
                     pass
 
                 try:
                     attachment_x.height = attachment_json[JSON_ATTACHMENT_HEIGHT]                    
                 except Exception as e:
                     if the_config.debug:
-                        print('Failed to parse attachment additional info. ' + e)
+                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_HEIGHT)
+                        print(error_str + ' ' + e)
                     pass
 
             except Exception as e:
                 if the_config.debug:
-                    print('Failed to parse attachment. ' + e)
+                    error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT)
+                    print(error_str + ' ' + e)
                 pass
 
             if attachment_x.id and attachment_x.type:
@@ -362,6 +366,11 @@ def parse_json(row, the_message, field_map):
         print(the_message.id + ": " + e)
 
     try:
+        the_message.source_service_id = json_data[JSON_SOURCE_SERVICE_ID]
+    except:
+        pass
+
+    try:
         num_reactions = parse_reactions(json_data[JSON_REACTIONS], the_message)
     except:
         pass
@@ -481,16 +490,23 @@ def parse_people(row, message, field_map, me):
     # see who the message is to
     if type in [SIGNAL_INCOMING]:
         to_person = me
+
     elif not group_slug:
         # if it's a group slug then this call would generate an error since it
         # won't find the person and that could confuse the user
-        to_person = the_config.get_person_by_conversation_id(id)
+        try:
+            to_person = the_config.get_person_by_conversation_id(id)
+        except:
+            pass
 
     # see who the message is from
     if type in [SIGNAL_OUTGOING]:
         from_person = me
     else:
-        from_person = the_config.get_person_by_conversation_id(id)
+        try:
+            from_person = the_config.get_person_by_conversation_id(id)
+        except:
+            pass
 
         # if couldn't get them by the convo ID, it is likely a group so try the 
         # `sourceServiceId` which is inside the json portion
@@ -498,7 +514,7 @@ def parse_people(row, message, field_map, me):
             service_id = message.source_service_id
             if service_id: 
                 from_person = get_person_by_service_id(service_id)
-        
+
     if from_person and len(from_person.slug):
         message.from_slug = from_person.slug
 
@@ -506,8 +522,8 @@ def parse_people(row, message, field_map, me):
         # messages originating from me have me as "source"
         found = True
 
-        if to_person and len(to_person.slug):
-            message.to_slugs.append(to_person.slug)
+    if to_person and len(to_person.slug):
+        message.to_slugs.append(to_person.slug)
 
     return found
 
