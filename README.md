@@ -49,15 +49,15 @@ This steps below desribe how to get these two sets of data out of Signal.
 1. Install DB Browser for SQLite - [2]
 	- *NOTE: I had to try multiple older versions before I got one that would open the file*
     - the one that worke for me was v3.13 from https://nightlies.sqlitebrowser.org/win64-prerelease/
-2. Find the **key** to your SQLite DB, see [1]
-    - For me, on Windows, with user `micro` it was here: `C:\Users\micro\AppData\Roaming\Signal\config.json`
-3. Find the **path** to your Signal `db.sqlite` database file
+2. Get your decrypted SQLite DB key
+    - On Windows, install [Signal Backup Tools](https://github.com/bepaald/signalbackup-tools) and run `signalbackup-tools_win.exe --showdesktopkey`
+4. Find the **path** to your Signal `db.sqlite` database file
     - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\`
-4. Launch "DB Browser for SQLite (SQLCipher)" -- not the one without `(SQLCipher)`
-5. Click "Open Database"
-6. Choose `Raw key` from the menu to the right of the "Password" field
-7. In the "Password" field, type `0x` and then paste the **key** you found in step 2
-8. Right click on "messages" and click "Export as CSV file"
+5. Launch "DB Browser for SQLite (SQLCipher)" -- not the one without `(SQLCipher)`
+6. Click "Open Database"
+7. Choose `Raw key` from the menu to the right of the "Password" field
+8. In the "Password" field, type `0x` and then paste the **key** you found in step 2
+9. Right click on "messages" and click "Export as CSV file"
 
 ![](media/dbbrowser_export_messages.png)
 
