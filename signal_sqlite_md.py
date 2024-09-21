@@ -53,6 +53,9 @@ SignalFields = [
     SIGNAL_TYPE, SIGNAL_BODY
 ]
 
+# As of 2024-09-01 these are the columns in `messages` table
+# rowid,id,json,readStatus,expires_at,sent_at,schemaVersion,conversationId,received_at,source,hasAttachments,hasFileAttachments,hasVisualMediaAttachments,expireTimer,expirationStartTimestamp,type,body,messageTimer,messageTimerStart,messageTimerExpiresAt,isErased,isViewOnce,sourceServiceId,serverGuid,sourceDevice,storyId,isStory,isChangeCreatedByUs,isTimerChangeFromSync,seenStatus,storyDistributionListId,expiresAt,isUserInitiatedMessage,mentionsMe,isGroupLeaveEvent,isGroupLeaveEventFromOther,callId,shouldAffectPreview,shouldAffectActivity,isAddressableMessage
+
 # -----------------------------------------------------------------------------
 #
 # Parse the header row of the `messages.csv` file and map it to the fields
@@ -622,7 +625,7 @@ the_reactions = []
 
 the_config = config.Config()
 
-if message_md.setup(the_config, markdown.YAML_SERVICE_SIGNAL, True):
+if message_md.setup(the_config, markdown.YAML_SERVICE_SIGNAL):
 
     # load the conversation ID for each person
     conversations.parse_conversations_file(the_config)
