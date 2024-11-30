@@ -503,14 +503,17 @@ def parse_people(row, message, field_map, me):
         except:
             pass
 
+    from_person = False
+    
     # see who the message is from
     if type in [SIGNAL_OUTGOING]:
         from_person = me
     else:
-        try:
-            from_person = the_config.get_person_by_conversation_id(id)
-        except:
-            pass
+        if not group_slug:
+            try:
+                from_person = the_config.get_person_by_conversation_id(id)
+            except:
+                pass
 
         # if couldn't get them by the convo ID, it is likely a group so try the 
         # `sourceServiceId` which is inside the json portion
