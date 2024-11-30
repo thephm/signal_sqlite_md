@@ -212,7 +212,7 @@ def store_conversation_info(the_config, field_map, row):
         pass
 
     # if couldn't find them with the phone number, try their profile full name
-    if not the_person:
+    if not the_person and full_name:
         the_person = the_config.get_person_by_full_name(full_name)
 
         # if the option to create people on the fly who are not in  
@@ -251,6 +251,7 @@ def store_conversation_info(the_config, field_map, row):
     if the_person:
         the_person.conversation_id = id
         the_person.full_name = full_name
+
         try:
             the_person.service_id = json_data[CONVERSATION_SERVICE_ID]
         except Exception as e:

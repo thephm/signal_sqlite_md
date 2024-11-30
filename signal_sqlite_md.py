@@ -495,6 +495,7 @@ def parse_people(row, message, field_map, me):
         to_person = me
 
     elif not group_slug:
+        
         # if it's a group slug then this call would generate an error since it
         # won't find the person and that could confuse the user
         try:
