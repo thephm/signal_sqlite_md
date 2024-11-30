@@ -1,2 +1,6 @@
 
 __pycache__/conversations.cpython-310.pyc
+db.sqlite
+decrypt_file1.py
+decrypt_file2.py
+decrypt_key.py
