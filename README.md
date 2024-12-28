@@ -141,3 +141,29 @@ In the `messages.csv` file, the attachments are referenced in this part of the m
 ```
 ""path"":""0b\\0b82ab19cb4cab30f5041f7705aa890833cab2c32d662c2792814e0268c90e6c""
 ```
+
+## Helper bash script
+
+The file `signal.sh` is a small shell script which makes running the tool a little easier. It simply calls the "Signal Backup Tools" for you and shows the encryption key so you can copy and paste it. It also describes the steps so you don't have to come back to this page to find them. I run this script in Ubuntu on Windows Subsystem for Linux (WSL). 
+
+Before running the script, check that it has e`x`ecution permissions and update the constants defined at the top of the file:
+
+```
+# this is your slug
+ME=bob
+
+# location of 'signalbackup-tools_win.exe' is
+DIR=/mnt/c/Users/micro/OneDrive/Desktop
+
+# where you place the exported SQLite output files in steps 6 and 8
+DATA_DIR=/mnt/c/data/signal_sqlite
+
+# location of the Python script
+PY_DIR=/mnt/c/data/github/signal_sqlite_md
+
+# configuration for signal_sqlite_md
+CONFIG_DIR=/mnt/c/data/dev-output/config
+
+# location to put the output Markdown files from signal_sqlite_md
+OUTPUT_DIR=/mnt/c/data/dev-output
+```
