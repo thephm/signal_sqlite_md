@@ -14,10 +14,12 @@ import os
 import csv
 import json
 import re
+import logging
 
 import sys
 sys.path.insert(1, '../message_md/')
 import person
+import config
 
 CONVERSATIONS_FILENAME = "conversations.csv"
 
@@ -235,8 +237,11 @@ def store_conversation_info(the_config, field_map, row):
                     the_person.mobile = e164
                 the_config.people.append(the_person)
             else:
-                print(e)
-                print("Could not find a person by phone '" + str(phone) + "' or by full name '" + full_name + "'")
+                error_str = the_config.get_str(the_config.STR_NO_PERSON_WITH_PHONE_NUMBER)
+                error_str += " '" + str(phone) + "' "
+                error_str += the_config.get_str(the_config.STR_OR_WITH_FULL_NAME)
+                error_str += "'" + full_name + "'"
+                logging.error(error_str)
 
     # get the `ServiceId` value which me thinks is the unique ID for person.
     # this is needed to figure out who replied to group messages as those 
@@ -246,7 +251,7 @@ def store_conversation_info(the_config, field_map, row):
     try:
         json_data = json.loads(data)
     except Exception as e:
-        print(id + ": " + e)
+        logging.error(f"store_conversation_info {id}: {e}")
 
     if the_person:
         the_person.conversation_id = id
@@ -294,9 +299,9 @@ def parse_conversations_file(the_config):
                     try:
                         store_conversation_info(the_config, field_map, row)
                     except Exception as e:
-                        print(e)
+                        logging.error(f"parse_conversations_file failed: {e}")
                 count += 1
 
     except Exception as e:
-        print(e)
+        logging.error(f"parse_conversations_file failed: {e}")
         return

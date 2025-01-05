@@ -3,7 +3,7 @@
 # To install WSL: https://learn.microsoft.com/en-us/windows/wsl/install
 
 # this is your slug
-ME=bob
+ME=bernie
 
 # location of 'signalbackup-tools_win.exe'
 DIR=/mnt/c/Users/micro/OneDrive/Desktop
