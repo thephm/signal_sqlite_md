@@ -28,10 +28,11 @@ SIGNAL_BODY = "body"       # Content of the message
 SIGNAL_INCOMING = "incoming"  # Incoming message from another user
 SIGNAL_OUTGOING = "outgoing"  # Outgoing message sent by the user
 
+SIGNAL_SOURCE_SERVICE_ID = "sourceServiceId"  # Service ID of the sender/recipient 
+
 JSON_REACTIONS = "reactions"
 JSON_ATTACHMENTS = "attachments"
 JSON_TIMESTAMP = "timestamp"
-JSON_SOURCE_SERVICE_ID = "sourceServiceId"  # Service ID of the sender/recipient 
 JSON_FROM_ID = "fromId"
 JSON_EMOJI = "emoji"
 JSON_TARGET_TIMESTAMP = "targetTimestamp"
@@ -50,7 +51,7 @@ JSON_QUOTE_TEXT = "text"
 SignalFields = [
     SIGNAL_ROW_ID, SIGNAL_ID, SIGNAL_JSON, SIGNAL_SENT_AT, 
     SIGNAL_CONVERSATION_ID, SIGNAL_SOURCE, SIGNAL_HAS_ATTACHMENTS, 
-    SIGNAL_TYPE, SIGNAL_BODY
+    SIGNAL_TYPE, SIGNAL_BODY, SIGNAL_SOURCE_SERVICE_ID
 ]
 
 # As of 2024-09-01 these are the columns in `messages` table
@@ -369,11 +370,6 @@ def parse_json(row, the_message, field_map):
         print(the_message.id + ": " + e)
 
     try:
-        the_message.source_service_id = json_data[JSON_SOURCE_SERVICE_ID]
-    except:
-        pass
-
-    try:
         num_reactions = parse_reactions(json_data[JSON_REACTIONS], the_message)
     except:
         pass
@@ -509,18 +505,13 @@ def parse_people(row, message, field_map, me):
     if type in [SIGNAL_OUTGOING]:
         from_person = me
     else:
-        if not group_slug:
-            try:
-                from_person = the_config.get_person_by_conversation_id(id)
-            except:
-                pass
+        # it's an incoming message
+        service_id = message.source_service_id
 
         # if couldn't get them by the convo ID, it is likely a group so try the 
         # `sourceServiceId` which is inside the json portion
-        if not from_person:
-            service_id = message.source_service_id
-            if service_id: 
-                from_person = get_person_by_service_id(service_id)
+        if not from_person and service_id:
+            from_person = get_person_by_service_id(service_id)
 
     if from_person and len(from_person.slug):
         message.from_slug = from_person.slug
@@ -558,6 +549,7 @@ def parse_row(row, message, field_map):
     the_config = config.Config()
 
     # see if it's incoming our outgoing
+
     type = row[field_index(SIGNAL_TYPE, field_map)]
 
     # only deal with "incoming" and "outgoing" messages
@@ -565,6 +557,12 @@ def parse_row(row, message, field_map):
 
         body_index = field_index(SIGNAL_BODY, field_map)
         message.body = row[body_index]
+
+        try:
+            service_id_index = field_index(SIGNAL_SOURCE_SERVICE_ID, field_map)
+            message.source_service_id = row[service_id_index]
+        except:
+            pass
 
         # parse the `json` portion of the message into a Reaction and
         # include it inside the Message object.
@@ -614,6 +612,7 @@ def load_messages(filename, messages, reactions, the_config):
         for row in reader:
             if count == 0:
                 parse_header(row, field_map)
+                # [['rowid', 0], ['id', 1], ['json', 2], ['sent_at', 5], ['conversationId', 7], ['source', 9], ['hasAttachments', 10], ['type', 15], ['body', 16]]
             else:
                 the_message = signal_message.SignalMessage()
                 if parse_row(row, the_message, field_map):
