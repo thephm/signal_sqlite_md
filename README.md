@@ -167,3 +167,7 @@ CONFIG_DIR=/mnt/c/data/dev-output/config
 # location to put the output Markdown files from signal_sqlite_md
 OUTPUT_DIR=/mnt/c/data/dev-output
 ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE.md) file for details.
