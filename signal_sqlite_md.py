@@ -6,6 +6,7 @@ import tzlocal # pip install tzlocal
 
 import sys
 import conversations
+import attachments
 import signal_message
 sys.path.insert(1, '../message_md/')
 import message_md
@@ -13,7 +14,6 @@ import config
 import markdown
 import message
 import person
-import attachment
 
 SIGNAL_ID = "id"           # Unique identifier for the message
 SIGNAL_ROW_ID = "rowid"    # Row ID in the SQLite table
@@ -31,22 +31,13 @@ SIGNAL_OUTGOING = "outgoing"  # Outgoing message sent by the user
 SIGNAL_SOURCE_SERVICE_ID = "sourceServiceId"  # Service ID of the sender/recipient 
 
 JSON_REACTIONS = "reactions"
-JSON_ATTACHMENTS = "attachments"
 JSON_TIMESTAMP = "timestamp"
 JSON_FROM_ID = "fromId"
 JSON_EMOJI = "emoji"
 JSON_TARGET_TIMESTAMP = "targetTimestamp"
-JSON_ATTACHMENT_CONTENT_TYPE = "contentType"
-JSON_ATTACHMENT_FILENAME = "fileName"
-JSON_ATTACHMENT_PATH = "path"
-JSON_ATTACHMENT_SIZE = "size"
-JSON_ATTACHMENT_WIDTH = "width"
-JSON_ATTACHMENT_HEIGHT = "height"
 JSON_QUOTE = "quote"
 JSON_QUOTE_ID = "id"
 JSON_QUOTE_TEXT = "text"
-
-# messagesFile = "/mnt/c/data/signal_sqlite/messages.csv"
 
 SignalFields = [
     SIGNAL_ROW_ID, SIGNAL_ID, SIGNAL_JSON, SIGNAL_SENT_AT, 
@@ -54,20 +45,14 @@ SignalFields = [
     SIGNAL_TYPE, SIGNAL_BODY, SIGNAL_SOURCE_SERVICE_ID
 ]
 
-# As of 2024-09-01 these are the columns in `messages` table
-# rowid,id,json,readStatus,expires_at,sent_at,schemaVersion,conversationId,received_at,source,hasAttachments,hasFileAttachments,hasVisualMediaAttachments,expireTimer,expirationStartTimestamp,type,body,messageTimer,messageTimerStart,messageTimerExpiresAt,isErased,isViewOnce,sourceServiceId,serverGuid,sourceDevice,storyId,isStory,isChangeCreatedByUs,isTimerChangeFromSync,seenStatus,storyDistributionListId,expiresAt,isUserInitiatedMessage,mentionsMe,isGroupLeaveEvent,isGroupLeaveEventFromOther,callId,shouldAffectPreview,shouldAffectActivity,isAddressableMessage
-
-# -----------------------------------------------------------------------------
-#
-# Parse the header row of the `messages.csv` file and map it to the fields
-#
-# Parameters:
-#
-#   - row - the header row
-#   - field_map - where the result goes
-#
-# -----------------------------------------------------------------------------
 def parse_header(row, field_map):
+    """
+    Parse the header row of the `messages.csv` file and map it to the fields.
+    
+    Parameters:
+    - row: The header row from the CSV file.
+    - field_map: A list where the field names and their indices will be stored.
+    """
 
     global SignalFields
 
@@ -75,20 +60,20 @@ def parse_header(row, field_map):
     for col in row:
         for field in SignalFields:
             if col == field:
-                field_map.append( [field, count] )
+                field_map.append([field, count])
         count += 1
 
-# -----------------------------------------------------------------------------
-#
-# Find the index for specific CSV field based from the `field_map`` on it's label
-#
-# Parameters:
-#
-#   - field_label - the field label e.g. SIGNAL_SENT_AT
-#   - field_map - where the result goes
-#
-# -----------------------------------------------------------------------------
 def field_index(field_label, field_map):
+    """
+    Find the index of a specific field in the `field_map` based on its label.
+
+    Parameters:
+    - field_label: Label of the field to find e.g., ATTACHMENT_CONTENT_TYPE
+    - field_map: List mapping field names to their indices in the CSV row.
+
+    Returns:
+    - The index of the field if found, otherwise -1.
+    """
 
     result = -1
 
@@ -99,20 +84,21 @@ def field_index(field_label, field_map):
 
     return result
 
-# -----------------------------------------------------------------------------
-# 
-# Get the filename from "path" attribute in "attachments".
-#
-# Example:
-#
-# "path":"97\\977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81"
-# 
-# returns:
-#
-# 977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81
-#
-# -----------------------------------------------------------------------------
 def get_filename(str):
+    """
+    Extract the filename from a given string by finding the last occurrence of "\\".
+    
+    Parameters:
+    - str: The input string from which to extract the filename.
+    
+    Returns:
+    - The filename extracted from the string, or the original string if "\\" is not found.
+
+    Example:
+
+    - `"path":"97\\977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81"`
+    - returns: `977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81`
+    """
 
     index = str.rfind("\\")
     
@@ -123,137 +109,36 @@ def get_filename(str):
         # if "\\" is not found, return the original string
         return str
 
-# -----------------------------------------------------------------------------
-#
-# Parse the attachments portion of the `json` message into Attachment objects
-# and add them to the Message passed in.
-#
-# Parameters:
-# 
-#   - data - the JSON data
-#   - the_message - the target Message object where the values will go
-#
-# Notes:
-# 
-#   - this part of the message contains metadata about the attachments
-#   - the actual content of the messages are stored unencrypted locally
-#   - the files are stored in a series of subfolders with a 2 character ID
-#   - the files have no file extension
-#   - a sample with many fields removed for brevity sake
-#   - there's also a 150x150 pixel "thumbnail" stored but not interested
-#
-#   ""attachments"":[{
-#       ""contentType"":""image/png"",
-#       ""fileName"":""image.png"",
-#       ""path"":""97\\977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81"",
-#       ""size"":205739,""width"":1232,""height"":1085,
-#   },
-#
-#   - "path" is the folder plus filename under "Signal\attachments.noindex"
-#   - "fileName" is **not** unique, many messages have "image.png"
-#   - so, instead, use the unique ID from "path" for "attachment.id"
-#   - "url" field had folder and filename with "...Signal\drafts.noindex" but
-#     for me those folders appeared empty, so ignoring this field completely
-#   - saw cases where "fileName" wasn't present so put exception around each
-#
-# Returns:
-#
-#   - the number of attachments
-#
-# -----------------------------------------------------------------------------
-def parse_attachments(attachments, the_message):
-
-    count = 0
-
-    if attachments:
-        for attachment_json in attachments:
-
-            attachment_x = attachment.Attachment()
-
-            # need the attachment "id" and content type
-            try:
-                attachment_x.id = get_filename(attachment_json[JSON_ATTACHMENT_PATH])
-
-                try:
-                    attachment_x.type = attachment_json[JSON_ATTACHMENT_CONTENT_TYPE]
-                except:
-                    pass
-                    
-                try:
-                    attachment_x.fileName = attachment_json[JSON_ATTACHMENT_FILENAME]
-                except:
-                    pass
-
-                try:
-                    attachment_x.size = attachment_json[JSON_ATTACHMENT_SIZE]
-                except:
-                    if the_config.debug:
-                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_SIZE)
-                        print(error_str + ' ' + e)
-                    pass
-                
-                try:
-                    attachment_x.width = attachment_json[JSON_ATTACHMENT_WIDTH]
-                except Exception as e:
-                    if the_config.debug:
-                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_WIDTH)
-                        print(error_str + ' ' + e)
-                    pass
-
-                try:
-                    attachment_x.height = attachment_json[JSON_ATTACHMENT_HEIGHT]                    
-                except Exception as e:
-                    if the_config.debug:
-                        error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT_HEIGHT)
-                        print(error_str + ' ' + e)
-                    pass
-
-            except Exception as e:
-                if the_config.debug:
-                    error_str = the_config.get_str(the_config.STR_FAILED_TO_PARSE_ATTACHMENT)
-                    print(error_str + ' ' + e)
-                pass
-
-            if attachment_x.id and attachment_x.type:
-                the_message.attachments.append(attachment_x)
-                count += 1
-
-    return count
-
-# -----------------------------------------------------------------------------
-#
-# Parse the `json` portion of the message into a Reaction object and add to the 
-# Message. Luckily, Signal stores reactions along with the original message.
-#
-# Parameters:
-#
-#   - reactions - actual reactions in JSON format
-#   - the_message - the target Message object where the values will go
-#
-# Notes:
-#
-# - This is the format of the reactions
-#
-#   ""reactions"":[{
-#       ""emoji"":""😮"", 
-#       ""fromId"":""4320e55c-39db-4370-9a9e-2ffe1b7be661"", 
-#       ""targetTimestamp"":1703540110922,  
-#       ""timestamp"":1703543026900
-#   }]
-#
-#  which is a collection of, you guessed it, reactions:
-#   
-#   - emoji - yes 🤣!
-#   - fromId - the `conversation-id` associated with the person who reacted
-#   - targetTimestamp - original message sent e.g. 2023-12-25 at 16:35
-#   - timestamp - when they reacted e.g. at 22:23 on 2023-12-25
-#
-# Returns:
-#
-#   - number of reactions
-#
-# -----------------------------------------------------------------------------
 def parse_reactions(reactions, the_message):
+    """
+    Parse the `json` portion of the message into a Reaction object and add to the 
+    Message. Luckily, Signal stores reactions along with the original message.
+    
+    Parameters:
+    - reactions: List of reaction data in JSON format.
+    - the_message: The Message object where the reactions will be added.
+    
+    Returns:
+    - The number of reactions added to the Message object.
+
+    # Notes:
+
+    - This is the format of the reactions
+
+    ""reactions"":[{
+    ""emoji"":""😮"", 
+    ""fromId"":""4320e55c-39db-4370-9a9e-2ffe1b7be661"", 
+    ""targetTimestamp"":1703540110922,  
+    ""timestamp"":1703543026900
+    }]
+
+    which is a collection of, you guessed it, reactions:
+
+    - emoji - yes 🤣!
+    - fromId - the `conversation-id` associated with the person who reacted
+    - targetTimestamp - original message sent e.g. 2023-12-25 at 16:35
+    - timestamp - when they reacted e.g. at 22:23 on 2023-12-25
+    """
 
     count = 0
 
@@ -281,36 +166,31 @@ def parse_reactions(reactions, the_message):
 
     return count
 
-# -----------------------------------------------------------------------------
-#
-# If this is a reply, parse it.
-#
-# Parameters:
-#
-#   - data - the "quote" data
-#   - the_message - where to put the reply
-#
-# Example:
-#
-#   ""quote"":{
-#       ""id"":1661091484671,
-#       ""authorUuid"":""db8ca91a-af41-4365-b498-b864117ce4bb"",
-#       ""text"":""who is toby"",
-#   }
-#
-# Where:
-#
-#   - id - the timestamp of the original message
-#   - authorUuid - the unique ID of the person who sent the message
-#   - text - the actual reply
-#
-# Notes:
-# 
-#   - The quoted reply is part of the JSON portion of the CSV row.
-# 
-# 
-# -----------------------------------------------------------------------------
 def parse_quote(data, the_message):
+    """
+    If this is a reply, parse the "quote" data from the JSON portion of the 
+    message and set it in the Message object.
+    
+    Parameters:
+    - data: The "quote" data from the JSON portion of the message.
+    - the_message: The Message object where the quote data will be set.
+
+    Example:
+
+    ""quote"":{
+        ""id"":1661091484671,
+        ""authorUuid"":""db8ca91a-af41-4365-b498-b864117ce4bb"",
+        ""text"":""who is toby"",
+    }
+    where:
+    - id - the timestamp of the original message
+    - authorUuid - the unique ID of the person who sent the message
+    - text - the actual reply
+
+    Notes:
+
+    - The quoted reply is part of the JSON portion of the CSV row.
+    """
 
     try:
         the_message.quote.id = data[JSON_QUOTE_ID]
@@ -318,56 +198,47 @@ def parse_quote(data, the_message):
     except:
         pass
 
-# -----------------------------------------------------------------------------
-#
-# Parse the `json` portion of the message into a Reaction object and adds the
-# source service ID and attachment IDs.
-#
-# Parameters:
-#
-#   - row - the row from the CSV
-#   - the_message - the target Message object where the values will go
-#   - field_map - the mapping of colums to their field names
-#
-# Notes:
-#
-#   - The reactions are stored right inside the message row
-#     or received (?) the message. 
-#   - These are the key parts of the `json` 
-#
-#   {
-#       ""timestamp"":1703540110922,
-#       ""attachments"":[],
-#       ""id"":""96b26f51-d1fe-4159-8721-57356f88d2ad"",
-#       ""conversationId"":""a1760c87-d3d0-40f6-9992-ac0426efcc14"",
-#       ""source"":""+12894005633"",
-#       ""reactions"":[],
-#       ""sourceServiceId"":""5965a5d4-7f37-4d48-8cdd-4c6ee99afe70""
-#   }
-#
-#   where: 
-#  
-#   - `id` uniquely identifies the specific message
-#   - `conversationId` uniquely identifies the conversation thread
-#   - `sourceServiceId` uniquely identifies the person who sent
-# 
-# Returns:
-#
-#   - number of reactions + attachments
-#
-# -----------------------------------------------------------------------------
 def parse_json(row, the_message, field_map):
+    """
+    Parse the `json` portion of the message into a Reaction object and adds the
+    source service ID and attachment IDs.
+    
+    Parameters:
+    - row: The row from the CSV file containing the message data.
+    - the_message: The target Message object where the values will be set.
+    - field_map: The mapping of columns to their field names.
+
+    Notes:
+    - The reactions are stored right inside the message row
+    or received (?) the message.
+    - The `json` portion of the message contains various fields including:
+    {
+        "timestamp": 1703540110922,
+        "attachments": [],
+        "id": "96b26f51-d1fe-4159-8721-57356f88d2ad",
+        "conversationId": "a1760c87-d3d0-40f6-9992-ac0426efcc14",
+        "source": "+12894005633",
+        "reactions": [],
+        "sourceServiceId": "5965a5d4-7f37-4d48-8cdd-4c6ee99afe70"
+    }
+    where:
+    - `id` uniquely identifies the specific message
+    - `conversationId` uniquely identifies the conversation thread
+    - `sourceServiceId` uniquely identifies the person who sent the message
+    Returns:
+    - The number of reactions and attachments parsed from the message.
+    """
 
     num_reactions = 0
     num_attachments = 0
-
+    
     json_index = field_index(SIGNAL_JSON, field_map)
     data = row[json_index]
 
     try:
         json_data = json.loads(data)
     except Exception as e:
-        print(the_message.id + ": " + e)
+        print("Error parsing JSON for message " + the_message.id + ": " + e)
 
     try:
         num_reactions = parse_reactions(json_data[JSON_REACTIONS], the_message)
@@ -375,32 +246,23 @@ def parse_json(row, the_message, field_map):
         pass
 
     try:
-        num_attachments = parse_attachments(json_data[JSON_ATTACHMENTS], the_message)
-    except:
-        pass
-    
-    try:
         parse_quote(json_data[JSON_QUOTE], the_message)
     except:
         pass
 
     return num_reactions + num_attachments
 
-# -------------------------------------------------------------------------
-#
-# Lookup a person in the `Config.people` array by their Service ID.
-#
-# Parameters:
-# 
-#   - id - `serviceId` for the person
-#
-# Returns:
-#
-#   - False if no person found
-#   - Person object if found 
-#
-# -------------------------------------------------------------------------
 def get_person_by_service_id(id):
+    """
+    Lookup a person in the `Config.people` array by their Service ID.
+
+    Parameters:
+    - id: The `serviceId` for the person to look up.
+
+    Returns:
+    - False if no person found.
+    - Person object if found.
+    """
 
     the_config = config.Config()
 
@@ -415,22 +277,20 @@ def get_person_by_service_id(id):
             
     return False
 
-# -----------------------------------------------------------------------------
-#
-# Parse the date and time from a comma-separated row into the Message object.
-#
-# Parameters:
-# 
-#   - row - comma spearated data for the specific message
-#   - message - the Message object where the data goes
-#   - field_map - the mapping of colums to their field names
-#
-# Notes:
-#
-#   - example date/time `2023-06-11 15:33:58 UTC`
-#
-# -----------------------------------------------------------------------------
 def parse_time(row, message, field_map):
+    """
+    Parse the date and time from a comma-separated row into the Message object.
+    
+    Parameters:
+    - row: The row from the CSV file containing the message data.
+    - message: The Message object where the date and time will be set.
+    - field_map: The mapping of columns to their field names.
+
+    Notes:
+    - The `sent_at` field in the CSV is a timestamp in milliseconds since epoch.
+    - The timestamp is converted to seconds by dividing by 1000.
+    - The time is then converted to a `time.struct_time` object.
+    """
     
     time_index = field_index(SIGNAL_SENT_AT, field_map)
 
@@ -443,24 +303,20 @@ def parse_time(row, message, field_map):
     message.timestamp = time.mktime(message.time)
     message.set_date_time()
 
-# -----------------------------------------------------------------------------
-#
-# Parse the People from a comma-separated row into a Message.
-#
-# Parameters:
-# 
-#   - row - comma spearated data for the specific message
-#   - message - the Message object where the data goes
-#   - field_map - the mapping of colums to their field names
-#   - me - the Person object representing me
-#
-# Returns
-#
-#   - True - if a sender and receiver found
-#   - False - if either is not found
-#
-# -----------------------------------------------------------------------------
 def parse_people(row, message, field_map, me):
+    """
+    Parse the People from a comma-separated row into a Message.
+
+    Parameters:
+    - row: The row from the CSV file containing the message data.
+    - message: The Message object where the data will be set.
+    - field_map: The mapping of columns to their field names.
+    - me: The Person object representing the user (me).
+
+    Returns:
+    - True if a sender and receiver are found.
+    - False if either is not found.
+    """
 
     the_config = config.Config()
 
@@ -525,24 +381,19 @@ def parse_people(row, message, field_map, me):
 
     return found
 
-# -----------------------------------------------------------------------------
-#
-# Parse one comma-separated row of the Signal `messages` CSV file into a 
-# Message object.
-#
-# Parameters:
-# 
-#   - row - comma spearated data for the specific message
-#   - message - the Message object where the data goes
-#   - field_map - the mapping of colums to their field names
-#
-# Returns:
-#
-#   - True - if parsing was successful
-#   - False - if not
-# 
-# -----------------------------------------------------------------------------
 def parse_row(row, message, field_map):
+    """
+    Parse one comma-separated row of the Signal `messages` CSV file into a
+    Message object.
+
+    Parameters:
+    - row: The row from the CSV file containing the message data.
+    - message: The Message object where the data will be set.
+    - field_map: The mapping of columns to their field names.
+
+    Returns:
+    - True if parsing was successful, False otherwise.
+    """
    
     result = False
 
@@ -557,6 +408,8 @@ def parse_row(row, message, field_map):
 
         body_index = field_index(SIGNAL_BODY, field_map)
         message.body = row[body_index]
+
+        message.has_attachments = field_index(SIGNAL_HAS_ATTACHMENTS, field_map)
 
         try:
             service_id_index = field_index(SIGNAL_SOURCE_SERVICE_ID, field_map)
@@ -577,31 +430,26 @@ def parse_row(row, message, field_map):
 
         # we get here if we figured out who they are
 
-        # add the message if there's a body or attachment(s)
-        if len(message.body) or len(message.attachments):
-            parse_time(row, message, field_map)
+        parse_time(row, message, field_map)
+
+        if len(message.body) or message.has_attachments:
             result = True
 
     return result
 
-# -----------------------------------------------------------------------------
-#
-# Load the messages from the CSV file
-#
-# Parameters:
-# 
-#   - filename - the CSV file
-#   - messages - where the Message objects will go
-#   - reactions - not used
-#   - the_config - specific settings 
-#
-# Notes
-#   - the first row is the header row, parse it in case the field order changes
-#
-# Returns: the number of messages
-#
-# -----------------------------------------------------------------------------
 def load_messages(filename, messages, reactions, the_config):
+    """
+    Load the Signal messages from the CSV file and parse into Message objects.
+
+    Parameters:
+    - filename: The path to the CSV file containing the messages.
+    - messages: The list where the parsed Message objects will be stored.
+    - reactions: Not used in this function.
+    - the_config: The configuration object containing settings and metadata.
+
+    Returns:
+    - The number of messages parsed from the CSV file.
+    """
 
     field_map = []
 
@@ -618,7 +466,10 @@ def load_messages(filename, messages, reactions, the_config):
                 if parse_row(row, the_message, field_map):
                     messages.append(the_message)
             count += 1
-    
+
+    # Load the metadata from attachments export
+    attachments.parse_attachments_file(messages, the_config)
+
     return count
 
 # main
@@ -632,7 +483,7 @@ if message_md.setup(the_config, markdown.YAML_SERVICE_SIGNAL):
 
     # load the conversation ID for each person
     conversations.parse_conversations_file(the_config)
-
+    
     the_config.reversed = False
 
     # needs to be after setup so the command line parameters override the

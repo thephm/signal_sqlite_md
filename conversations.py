@@ -72,18 +72,17 @@ def parse_conversations_header(row, field_map):
                 field_map.append( [field, count] )
         count += 1
 
-# -----------------------------------------------------------------------------
-#
-# Find the index for specific CSV field based from the `field_map`` on it's 
-# field label.
-#
-# Parameters:
-#
-#   - field_label - the field label e.g. SIGNAL_SENT_AT
-#   - field_map - where the result goes
-#
-# -----------------------------------------------------------------------------
 def field_index(field_label, field_map):
+    """
+    Find the index of a specific field in the `field_map` based on its label.
+
+    Parameters:
+    - field_label: Label of the field to find e.g., ATTACHMENT_CONTENT_TYPE
+    - field_map: List mapping field names to their indices in the CSV row.
+
+    Returns:
+    - The index of the field if found, otherwise -1.
+    """
 
     result = -1
 
@@ -94,20 +93,16 @@ def field_index(field_label, field_map):
 
     return result
 
-# -----------------------------------------------------------------------------
-#
-# Convert a person's name to a slug.
-#
-# Parameters:
-#
-#   - full_name - person's full name e.g. "Bob Smith"
-#
-# Returns:
-# 
-#   - slug of the name e.g. "bob_smith"
-#
-# -----------------------------------------------------------------------------
 def get_slug(full_name):
+    """
+    Convert a full name string to a slug suitable for use in URLs or filenames.
+    
+    Parameters:
+    - full_name: The full name string, e.g., "Bob Smith"
+    
+    Returns:
+    - A slugified version of the full name, e.g., "bob_smith"
+    """
 
     # replace spaces and slashes with underscores first
     slug = re.sub(r'[ /]+', '_', full_name)
@@ -120,20 +115,16 @@ def get_slug(full_name):
 
     return slug
 
-# -----------------------------------------------------------------------------
-#
-# Get a person's last name from their full name.
-#
-# Parameters:
-#
-#   - full_name - person's full name e.g. "Bob Smith"
-#
-# Returns:
-#
-#   - the righmost part of the string after the last space e.g. "Smith"
-#
-# -----------------------------------------------------------------------------
 def get_last_name(full_name):
+    """
+    Get the last name from a full name string, capitalizing it.
+
+    Parameters:
+    - full_name: The full name string, e.g., "Bob Smith" or "Marc-André".
+
+    Returns:
+    - The last name, capitalized, e.g., "Smith"
+    """
 
     # split the full name by spaces
     name_parts = full_name.split()
@@ -145,20 +136,16 @@ def get_last_name(full_name):
         # return the last element of the list as the last name
         return name_parts[-1].capitalize() if name_parts else ''
     
-# -----------------------------------------------------------------------------
-#
-# Get a person's first name from their full name.
-#
-# Parameters:
-#
-#   - full_name - person's full name e.g. "Bob Smith"
-#
-# Returns:
-#
-#   - the first word e.g. "Bob"
-#
-# -----------------------------------------------------------------------------
 def get_first_name(name):
+    """
+    Get the first name from a full name string, handling cases with hyphens.
+        
+    Parameters:
+    - name: The full name string, e.g., "Marc-André".
+    
+    Returns:
+    - The first name, capitalized, e.g., "Marc".
+    """
 
     # get the text up to the first space
     name = name.split()[0]
@@ -172,30 +159,29 @@ def get_first_name(name):
     # join them back together e.g. "Marc-Andre"
     return '-'.join(capitalized_parts)
 
-# -----------------------------------------------------------------------------
-#
-# Grab the conversation info from the row and store it in the corresponding
-# Person object so it can be used later.
-#
-# Parameters:
-#
-#   - the_config - the configuration of the tool in `Config` object
-#   - field_map - mapping of the headers to the fields
-#   - row - a row from the `conversations` CSV file
-#
-# Notes:
-#
-#   - 4 x name columns: `name, profileName, familyName, fullName`
-#   - in my file there are 45, 30, 16, 30 of them, respectively
-#   - sometimes the `profileName` and `fullName` are the same (qty 9) but in 
-#     other cases, it's just their first name (qty 14)
-#   - SO, if the person can't be found by their phone number, and the option
-#     to create people on the fly is True, take the `fullName` first, making
-#     it snake_case. If it doesn't exist, then use `profileName`. If no 
-#     profileName is found, ignore it
-#
-# -----------------------------------------------------------------------------
 def store_conversation_info(the_config, field_map, row):
+    """
+    Grab the conversation info from the row and store it in the corresponding
+    Person object so it can be used later.
+    
+    Parameters:
+    - the_config: Configuration object with source folder and other settings.       
+    - field_map: List mapping field names to their indices in the CSV row.
+    - row: List representing a row from the `conversations.csv` file.
+
+    Returns:
+    - None
+
+    Notes:
+    - 4 x name columns: `name, profileName, familyName, fullName`
+    - in my file there are 45, 30, 16, 30 of them, respectively
+    - sometimes the `profileName` and `fullName` are the same (qty 9) but in 
+      other cases, it's just their first name (qty 14)
+    - SO, if the person can't be found by their phone number, and the option
+      to create people on the fly is True, take the `fullName` first, making
+      it snake_case. If it doesn't exist, then use `profileName`. If no 
+      profileName is found, ignore it
+    """
 
     e164 = row[field_index(CONVERSATION_E164, field_map)]
     phone = e164[-10:]
@@ -256,30 +242,30 @@ def store_conversation_info(the_config, field_map, row):
     if the_person:
         the_person.conversation_id = id
         the_person.full_name = full_name
-
         try:
             the_person.service_id = json_data[CONVERSATION_SERVICE_ID]
         except Exception as e:
             # groups don't have a service_id field
             pass
+    else:
+        group_slug = the_config.get_group_slug_by_conversation_id(id)
         
-# -----------------------------------------------------------------------------
-#
-# Parse the Signal SQLite 'conversations.csv' file to get each person's
-# conversation-id since those, not their phone number, is what is in the 
-# `messages.csv` export.
-#
-# Parameters:
-#
-#   - the_config - the configuration of the tool in `Config` object
-#
-# Notes:
-#
-#   - assumes the first row is the header row. If not, unpredictable results
-#     will occur 😂
-#
-# -----------------------------------------------------------------------------
 def parse_conversations_file(the_config):
+    """
+    Parse the Signal SQLite 'conversations.csv' file to get each person's
+    conversation-id since those, not their phone number, is what is in the 
+    `messages.csv` export.
+        
+    Parameters:
+    - the_config: The configuration object containing the source folder and other settings.
+
+    Returns:
+    - None
+
+    Notes:
+    - assumes the first row is the header row. If not, unpredictable results
+      will occur 😂
+    """
 
     field_map = []
 
