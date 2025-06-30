@@ -1,12 +1,12 @@
 # signal_sqlite_md
 
-Convert messages from a Signal SQLite database export to Markdown.
+Converts messages from a Signal SQLite database export to Markdown.
 
-Unlike my [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this one requires nothing beyond this Python script, configuration, and a tool to export the DB.
+Unlike [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this tool requires nothing beyond this Python script, some configuration, and a tool to export the DB.
 
 ## Disclaimer
 
-I probably should've called it `signal_sqlite_csv_md` because the script doesn't read directly from the SQLite DB, instead it parses a CSV export from it. I tried directly accessing the DB and gave up 🤣
+I should've called it `signal_sqlite_csv_md` because the script doesn't read directly from the SQLite DB, instead it parses a CSV export from it. I tried directly accessing the DB and gave up 🤣
 
 ## Context
 
@@ -14,9 +14,15 @@ A big shoutout to Florian Engel whose post `[1]` saved me hours 🤗.
 
 The SQLite DB is encrypted but it's easy to decrypt because you have the key! 
 
-The attachments are not in the DB, they're stored in the file system in a series of folders with 2 digit Hex labels. The files have names like "`000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7`" with no suffix but don't worry, that info is in the DB and the script takes care of adding the suffix e.g. "`.jpg`".
-
 Another approach would be to query the SQLite DB directly on device but that's a future thing for me. A good reference is https://github.com/idanlevin/signal-query
+
+## Regression
+
+The attachments are not in the DB, they're stored in the local file system in a series of folders with 2 digit Hex labels. The files have names like "`000ec9a54abe93416284f83da2f9f8d124778f22191d9422ed9829de2b22c1b7`" with no suffix. In my case, the files are stored in `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`.
+
+In previous versions of Signal Desktop for Windows, the attachments were not encrypted. The current version of Signal Desktop encrypts the attachment files and obfuscates their filename in the database. 
+
+I haven't figured out a way to decrypt the attachment files. So, at this point you need to manually download each attachment in Signal Desktop, save the files and modify the Markdown output from this tool to the filename.
 
 ## Dependencies
 
@@ -37,19 +43,25 @@ The code in this repo relies heavily on my [message_md](https://github.com/theph
 
 ## It's your data, go get it!
 
-The tool needs two files of date exported from Signal's SQLite database:
+The tool needs three files of date exported from Signal's SQLite database:
 
 1. `messages.csv` - the actual messages
-2. `conversations.csv`  - the mapping of `conversation-id` to people and groups
+2. `conversations.csv`  - maps `conversation-id` to individuals and groups of people
+3. `message_attachments.csv` - metadata on each attachment
 
-This steps below desribe how to get these two sets of data out of Signal.
+**Before you start**
+
+You first need to install DB Browser for SQLite ref. [2]
+
+*NOTE: I had to try multiple older versions before I got one that would open the file. The one that worked for me was `v3.13`.*
+
+The steps below desribe how to get the message data out of Signal.
 
 **Steps**
 
-1. Install DB Browser for SQLite - [2]
-	- *NOTE: I had to try multiple older versions before I got one that would open the file*
-    - the one that worke for me was v3.13 from https://nightlies.sqlitebrowser.org/win64-prerelease/
-2. Get your decrypted SQLite DB key
+I created a helper shell script `signal.sh` helper script that walks you through these steps. It's described further down this page.
+
+1. Get your decrypted SQLite DB key
     - On Windows, install [Signal Backup Tools](https://github.com/bepaald/signalbackup-tools) and run `signalbackup-tools_win.exe --showdesktopkey --ignorewal`
 4. Find the **path** to your Signal `db.sqlite` database file
     - For me, it was here: `C:\Users\micro\AppData\Roaming\Signal\sql\`
@@ -57,23 +69,18 @@ This steps below desribe how to get these two sets of data out of Signal.
 6. Click "Open Database"
 7. Choose `Raw key` from the menu to the right of the "Password" field
 8. In the "Password" field, type `0x` and then paste the **key** you found in step 2
-9. Right click on "messages" and click "Export as CSV file"
+9. Right click on "`messages`" and choose "Export as CSV file"
 
 ![](media/dbbrowser_export_messages.png)
 
-9. Right click on "conversations" and click "Export as CSV file"
-10. Find the attachments
-    - Mine were under: `C:\Users\micro\AppData\Roaming\Signal\attachments.noindex`
-11. Copy the attachments to the same folder (no subfolders) as the CSV file
-    - the `cp_signal_attachments.sh` shell script made it easier for me
-    - I had to use `dos2unix` on that shell script file before it worked
-    - *NOTE: I can improve this later to get the files directly, being lazy!*
+9. Right click on "`conversations`" and click "Export as CSV file"
+10. Right click on "`message_attachments`" and click "Export as CSV file"
 
 ## Setting up the config files
 
 The next step is to configure this tool. 
 
-You'll need to define each person that you communicate with in `people.json` and the groups in `groups.json`. This way the tool can associate each message with the person that sent it and who it was sent to.
+You need to define each person that you communicate with in `people.json` and the groups in `groups.json`. This way the tool can associate each message with the person that sent it and who it was sent to.
 
 Samples of these configuration files are in the `message_md` repo [here](https://github.com/thephm/message_md/tree/main/config) upon which this tool [depends](#dependencies).
 
@@ -133,14 +140,6 @@ where:
 - `o`utput the Markdown files to `../../dev-output`
 - `m`y slug is `spongebob`
 - `b`egin the export from `2023-12-20`
-
-## Other info
-
-In the `messages.csv` file, the attachments are referenced in this part of the message 
-
-```
-""path"":""0b\\0b82ab19cb4cab30f5041f7705aa890833cab2c32d662c2792814e0268c90e6c""
-```
 
 ## Helper bash script
 
