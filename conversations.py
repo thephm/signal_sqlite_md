@@ -17,8 +17,9 @@ import re
 import logging
 
 import sys
-sys.path.insert(1, '../message_md/')
+sys.path.insert(1, '../hal/')
 import person
+sys.path.insert(1, '../message_md/')
 import config
 
 CONVERSATIONS_FILENAME = "conversations.csv"
@@ -205,7 +206,7 @@ def store_conversation_info(the_config, field_map, row):
 
         # if the option to create people on the fly who are not in  
         # the `people.json` file, use the `fullName` or `profileName`
-        if not the_person and the_config.create_people:
+        if the_config.create_people:
             the_person = person.Person()
             if full_name:
                 slug = get_slug(full_name)
@@ -216,9 +217,9 @@ def store_conversation_info(the_config, field_map, row):
             if slug:
                 # add the person to the config
                 the_person.slug = slug
-                the_person.first_name = first_name.capitalize()
-                the_person.last_name = get_last_name(full_name)
-                the_person.full_name = the_person.first_name + " " + the_person.last_name.capitalize()
+                the_person.identity.first_name = first_name.capitalize()
+                the_person.identity.last_name = get_last_name(full_name)
+                the_person.identity.full_name = the_person.identity.first_name + " " + the_person.identity.last_name.capitalize()
                 if e164:
                     the_person.mobile = e164
                 the_config.people.append(the_person)
@@ -241,7 +242,7 @@ def store_conversation_info(the_config, field_map, row):
 
     if the_person:
         the_person.conversation_id = id
-        the_person.full_name = full_name
+        the_person.identity.full_name = full_name
         try:
             the_person.service_id = json_data[CONVERSATION_SERVICE_ID]
         except Exception as e:

@@ -8,12 +8,13 @@ import sys
 import conversations
 import attachments
 import signal_message
+sys.path.insert(1, '../hal/')
+import person
 sys.path.insert(1, '../message_md/')
 import message_md
 import config
 import markdown
 import message
-import person
 
 SIGNAL_ID = "id"           # Unique identifier for the message
 SIGNAL_ROW_ID = "rowid"    # Row ID in the SQLite table

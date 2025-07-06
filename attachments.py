@@ -121,8 +121,11 @@ def store_attachments_info(messages, the_config, field_map, row):
     the_attachment.height = height
     the_attachment.width = width
 
-    the_message.attachments.append(the_attachment)
-        
+    if the_message is not None:
+        the_message.attachments.append(the_attachment)
+    else:
+        logging.warning(f"No message found with id {id} for attachment.")
+
 def parse_attachments_file(messages, the_config):
     """
     Parse the Signal SQLite `message_attachments.csv` file to extract attachment
@@ -138,7 +141,7 @@ def parse_attachments_file(messages, the_config):
 
     field_map = []
 
-    global SignalFields
+    global AttachmentsFields
   
     try:
         filename = os.path.join(the_config.source_folder, ATTACHMENTS_FILENAME)
