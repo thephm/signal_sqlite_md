@@ -19,6 +19,7 @@ import logging
 import sys
 sys.path.insert(1, '../hal/')
 import person
+import identity
 sys.path.insert(1, '../message_md/')
 import config
 
@@ -209,10 +210,10 @@ def store_conversation_info(the_config, field_map, row):
         if the_config.create_people:
             the_person = person.Person()
             if full_name:
-                slug = get_slug(full_name)
+                slug = identity.generate_slug(full_name)
                 first_name = get_first_name(full_name)
             elif profile_name:
-                slug = get_slug(profile_name)
+                slug = identity.generate_slug(profile_name)
                 first_name = get_first_name(profile_name)
             if slug:
                 # add the person to the config
