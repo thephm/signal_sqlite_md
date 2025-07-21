@@ -51,8 +51,12 @@ def parse_header(row, field_map):
     Parse the header row of the `messages.csv` file and map it to the fields.
     
     Parameters:
-    - row: The header row from the CSV file.
-    - field_map: A list where the field names and their indices will be stored.
+    row (list): The header row from the CSV file containing column names.
+    field_map (list): The field names and their indices will be stored.
+
+    Returns:
+    dict: Dictionary mapping field names to their column indices.
+          Example: {'timestamp': 0, 'sender': 1, 'message': 2}
     """
 
     global SignalFields
@@ -69,11 +73,11 @@ def field_index(field_label, field_map):
     Find the index of a specific field in the `field_map` based on its label.
 
     Parameters:
-    - field_label: Label of the field to find e.g., ATTACHMENT_CONTENT_TYPE
-    - field_map: List mapping field names to their indices in the CSV row.
+    field_label (str): Label of the field to find e.g., ATTACHMENT_CONTENT_TYPE
+    field_map (list): List mapping field names to their indices in the CSV row.
 
     Returns:
-    - The index of the field if found, otherwise -1.
+    int: The index of the field if found, otherwise -1.
     """
 
     result = -1
@@ -90,13 +94,12 @@ def get_filename(str):
     Extract the filename from a given string by finding the last occurrence of "\\".
     
     Parameters:
-    - str: The input string from which to extract the filename.
+    str (str): The input string from which to extract the filename.
     
     Returns:
-    - The filename extracted from the string, or the original string if "\\" is not found.
+    str: The filename extracted from the string, or the original string if "\\" is not found.
 
     Example:
-
     - `"path":"97\\977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81"`
     - returns: `977e7e5f43d0c935ad785b290023d1455631351772b2f8c53e5ced4a5f8ffb81`
     """
@@ -116,11 +119,11 @@ def parse_reactions(reactions, the_message):
     Message. Luckily, Signal stores reactions along with the original message.
     
     Parameters:
-    - reactions: List of reaction data in JSON format.
-    - the_message: The Message object where the reactions will be added.
+    reactions (list): List of reaction data in JSON format.
+    the_message (Message): The Message object where the reactions will be added.
     
     Returns:
-    - The number of reactions added to the Message object.
+    int: The number of reactions added to the Message object.
 
     # Notes:
 
@@ -173,8 +176,8 @@ def parse_quote(data, the_message):
     message and set it in the Message object.
     
     Parameters:
-    - data: The "quote" data from the JSON portion of the message.
-    - the_message: The Message object where the quote data will be set.
+    data (dict): The "quote" data from the JSON portion of the message.
+    the_message (Message): The Message object where the quote data will be set.
 
     Example:
 
@@ -189,7 +192,6 @@ def parse_quote(data, the_message):
     - text - the actual reply
 
     Notes:
-
     - The quoted reply is part of the JSON portion of the CSV row.
     """
 
@@ -205,9 +207,9 @@ def parse_json(row, the_message, field_map):
     source service ID and attachment IDs.
     
     Parameters:
-    - row: The row from the CSV file containing the message data.
-    - the_message: The target Message object where the values will be set.
-    - field_map: The mapping of columns to their field names.
+    row (list): The row from the CSV file containing the message data.
+    the_message (Message): The target Message object where the values will be set.
+    field_map (dict): The mapping of columns to their field names.
 
     Notes:
     - The reactions are stored right inside the message row
@@ -226,8 +228,9 @@ def parse_json(row, the_message, field_map):
     - `id` uniquely identifies the specific message
     - `conversationId` uniquely identifies the conversation thread
     - `sourceServiceId` uniquely identifies the person who sent the message
+
     Returns:
-    - The number of reactions and attachments parsed from the message.
+    int: The number of reactions and attachments parsed from the message.
     """
 
     num_reactions = 0
@@ -258,11 +261,11 @@ def get_person_by_service_id(id):
     Lookup a person in the `Config.people` array by their Service ID.
 
     Parameters:
-    - id: The `serviceId` for the person to look up.
+    id (int): The `serviceId` for the person to look up.
 
     Returns:
-    - False if no person found.
-    - Person object if found.
+    bool: False if no person found 
+    Person: Person object if a person was found
     """
 
     the_config = config.Config()
@@ -283,9 +286,9 @@ def parse_time(row, message, field_map):
     Parse the date and time from a comma-separated row into the Message object.
     
     Parameters:
-    - row: The row from the CSV file containing the message data.
-    - message: The Message object where the date and time will be set.
-    - field_map: The mapping of columns to their field names.
+    row (list): The row from the CSV file containing the message data.
+    message (Message): The Message object where the date and time will be set.
+    field_map (dict): The mapping of columns to their field names.
 
     Notes:
     - The `sent_at` field in the CSV is a timestamp in milliseconds since epoch.
@@ -309,14 +312,13 @@ def parse_people(row, message, field_map, me):
     Parse the People from a comma-separated row into a Message.
 
     Parameters:
-    - row: The row from the CSV file containing the message data.
-    - message: The Message object where the data will be set.
-    - field_map: The mapping of columns to their field names.
-    - me: The Person object representing the user (me).
+    row (list): The row from the CSV file containing the message data.
+    message (Message): The Message object where the data will be set.
+    field_map (dict): The mapping of columns to their field names.
+    me (Person): The Person object representing the user (me).
 
     Returns:
-    - True if a sender and receiver are found.
-    - False if either is not found.
+    bool: True if sender and receiver found. False if neither is found.
     """
 
     the_config = config.Config()
@@ -388,12 +390,12 @@ def parse_row(row, message, field_map):
     Message object.
 
     Parameters:
-    - row: The row from the CSV file containing the message data.
-    - message: The Message object where the data will be set.
-    - field_map: The mapping of columns to their field names.
+    row (list): The row from the CSV file containing the message data.
+    message (Message): The Message object where the data will be set.
+    field_map (dict): The mapping of columns to their field names.
 
     Returns:
-    - True if parsing was successful, False otherwise.
+    bool: True if parsing was successful, False otherwise.
     """
    
     result = False
@@ -443,13 +445,13 @@ def load_messages(filename, messages, reactions, the_config):
     Load the Signal messages from the CSV file and parse into Message objects.
 
     Parameters:
-    - filename: The path to the CSV file containing the messages.
-    - messages: The list where the parsed Message objects will be stored.
-    - reactions: Not used in this function.
-    - the_config: The configuration object containing settings and metadata.
+    filename (str): The path to the CSV file containing the messages.
+    messages (list): The list where the parsed Message objects will be stored.
+    reactions (array): Not used in this function.
+    the_config (Config): The configuration object containing settings and metadata.
 
     Returns:
-    - The number of messages parsed from the CSV file.
+    int: The number of messages parsed from the CSV file.
     """
 
     field_map = []
