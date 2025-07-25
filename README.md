@@ -122,7 +122,7 @@ id,json,active_at,type,members,name,profileName,profileFamilyName,profileFullNam
 
 ## Using signal_sqlite_md
 
-Once you have the CSV export files and you your `people.json` and `groups.json` configured, you're finally ready to run this tool.
+Once you have the CSV export files and your `people.json` and `groups.json` configured, you're finally ready to run this tool.
 
 The [command line options](https://github.com/thephm/message_md#command-line-options) are described in the [message_md](https://github.com/thephm/message_md) repo.
 
