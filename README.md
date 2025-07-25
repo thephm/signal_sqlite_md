@@ -59,7 +59,7 @@ The steps below desribe how to get the message data out of Signal.
 
 **Steps**
 
-I created a helper shell script `signal.sh` helper script that walks you through these steps. It's described further down this page.
+I created a helper shell script `signal.sh` that walks you through these steps. It's described further down this page.
 
 1. Get your decrypted SQLite DB key
     - On Windows, install [Signal Backup Tools](https://github.com/bepaald/signalbackup-tools) and run `signalbackup-tools_win.exe --showdesktopkey --ignorewal`
