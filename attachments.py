@@ -109,9 +109,16 @@ def store_attachments_info(messages, the_config, field_map, row):
 
     the_message = next((m for m in messages if m.id == id), None)
 
-    size = int(float(row[field_index(ATTACHMENT_SIZE, field_map)]))
-    height = int(float(row[field_index(ATTACHMENT_HEIGHT, field_map)]))
-    width = int(float(row[field_index(ATTACHMENT_WIDTH, field_map)]))
+    # Handle empty strings in numeric fields by defaulting to 0
+    size_str = row[field_index(ATTACHMENT_SIZE, field_map)]
+    size = int(float(size_str)) if size_str and size_str.strip() else 0
+    
+    height_str = row[field_index(ATTACHMENT_HEIGHT, field_map)]
+    height = int(float(height_str)) if height_str and height_str.strip() else 0
+    
+    width_str = row[field_index(ATTACHMENT_WIDTH, field_map)]
+    width = int(float(width_str)) if width_str and width_str.strip() else 0
+    
     content_type = row[field_index(ATTACHMENT_CONTENT_TYPE, field_map)]
 
     the_attachment.type = content_type
