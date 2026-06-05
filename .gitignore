@@ -1,7 +1,7 @@
-
-__pycache__/conversations.cpython-310.pyc
+__pycache__/
 db.sqlite
 decrypt_file1.py
 decrypt_file2.py
 decrypt_key.py
 venv/
+.venv/

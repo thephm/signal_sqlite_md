@@ -21,12 +21,18 @@ CONFIG_DIR=/mnt/c/data/dev-output/config
 OUTPUT_DIR=/mnt/c/data/dev-output
 
 # get the SQLite DB key
-$DIR/signalbackup-tools_win.exe --showdesktopkey --ignorewal
+SIGNAL_BACKUP_TOOL="$DIR/signalbackup-tools_win.exe"
+if [ ! -f "$SIGNAL_BACKUP_TOOL" ]; then
+	echo "Missing executable: $SIGNAL_BACKUP_TOOL"
+	echo "Update DIR in signal.sh to the folder containing signalbackup-tools_win.exe"
+	exit 1
+fi
+"$SIGNAL_BACKUP_TOOL" --showdesktopkey --ignorewal
 
 echo ""
-echo "1. Launch SQL C:\ProgramData\Microsoft\Windows\Start Menu\Programs\DB Browser (SQLCipher)"
+echo "1. Launch SQL C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\DB Browser (SQLCipher)"
 echo "2. Click 'Open Database' button"
-echo "3. Open C:\Users\micro\AppData\Roaming\Signal\sql\db.sqlite"
+echo "3. Open C:\\Users\\micro\\AppData\\Roaming\\Signal\\sql\\db.sqlite"
 echo "4. Choose Raw Option"
 echo "5. Type 0x followed by the key from above"
 echo "6. Right-click on messages and 'export as CSV file'"
@@ -39,5 +45,5 @@ echo ""
 # Pause and wait for the user to press Enter
 read -p "Press Enter to continue..."
 
-cd $PY_DIR
-python3 signal_sqlite_md.py -c $CONFIG_DIR -s $DATA_DIR -f $DATA_DIR/messages.csv -d -o $OUTPUT_DIR -m $ME -b 1900-01-01
+cd "$PY_DIR" || exit 1
+python3 signal_sqlite_md.py -c "$CONFIG_DIR" -s "$DATA_DIR" -f "$DATA_DIR/messages.csv" -d -o "$OUTPUT_DIR" -m "$ME" -b 1900-01-01
