@@ -141,6 +141,62 @@ where:
 - `m`y slug is `spongebob`
 - `b`egin the export from `2023-12-20`
 
+## Windows UI automation for Signal
+
+If you want to stay inside Signal Desktop and save attachments from the UI instead of working from the decrypted SQLite export, use the new `signal_ui_automation.py` entrypoint.
+
+It reuses the same `message_md` config-loading path as `signal_sqlite_md.py`, keeps a resumable state file, and writes downloaded media into `People/<person-slug>/media` before rewriting markdown links to the saved filenames.
+
+Default traversal is shortcut-first (`Ctrl+1`, `Ctrl+2`, ...): for each visible conversation slot, it opens the conversation, scans messages on the right pane, right-clicks each candidate message, and only downloads when the first context-menu item is `Download`.
+
+Example:
+
+```
+python signal_ui_automation.py -c ../../dev-output/config -o ../../dev-output -m spongebob --signal-exe "C:\\Users\\micro\\AppData\\Local\\Programs\\signal-desktop\\Signal.exe" --downloads-root ../../dev-output --targets spongebob
+```
+
+To force traversal mode explicitly:
+
+```
+python signal_ui_automation.py --scan-order shortcut-first
+```
+
+or
+
+```
+python signal_ui_automation.py --scan-order signal-first
+```
+
+The script keeps its resume state in `signal_ui_state.json` and writes failures to `signal_ui_failures.log` under the downloads root unless you override those *paths*.
+
+If Signal's UI changes, adjust the shortcuts at the top of the new script or pass them on the command line.
+
+### Run from native Windows PowerShell
+
+UI automation must run from native Windows Python (not WSL). A helper launcher script is included:
+
+```
+.\run_signal_ui_automation.ps1 -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -MessagesFile messages.csv -OutputFolder C:\data\dev-output -Me bernie
+```
+
+Dry run:
+
+```
+.\run_signal_ui_automation.ps1 -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -OutputFolder C:\data\dev-output -Me bernie -DryRun
+```
+
+If `pywinauto` is missing in the selected interpreter, either let the launcher install dependencies:
+
+```
+.\run_signal_ui_automation.ps1 -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -OutputFolder C:\data\dev-output -Me bernie -InstallDeps
+```
+
+Or pin a specific Python interpreter:
+
+```
+.\run_signal_ui_automation.ps1 -PythonExe C:\Path\To\python.exe -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -OutputFolder C:\data\dev-output -Me bernie
+```
+
 ## Helper bash script
 
 The file `signal.sh` is a small shell script which makes running the tool a little easier. It simply calls the "Signal Backup Tools" for you and shows the encryption key so you can copy and paste it. It also describes the steps so you don't have to come back to this page to find them. I run this script in Ubuntu on Windows Subsystem for Linux (WSL). 
