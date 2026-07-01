@@ -7,3 +7,5 @@ venv/
 .venv/
 signal_ui_state.json
 signal_ui_failures.log
+prod_trace.txt
+test_state.json

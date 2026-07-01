@@ -145,17 +145,33 @@ if IS_WINDOWS:
         ki = _KEYBDINPUT(wVk=0, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=None)
         return _INPUT(type=INPUT_KEYBOARD, u=_INPUTUNION(ki=ki))
 
-    def send_scancode_shortcut(keys: list[str]) -> bool:
+    def _send_one_input(event: "_INPUT") -> int:
+        array = (_INPUT * 1)(event)
+        return _user32.SendInput(1, array, ctypes.sizeof(_INPUT))
+
+    def send_scancode_shortcut(keys: list[str], key_delay: float = 0.03) -> bool:
         vks = [_vk_for(k) for k in keys]
         if any(vk is None for vk in vks):
             return False
 
-        events = [_make_key_event(vk, False) for vk in vks]
-        events += [_make_key_event(vk, True) for vk in reversed(vks)]
-
-        array = (_INPUT * len(events))(*events)
-        sent = _user32.SendInput(len(events), array, ctypes.sizeof(_INPUT))
-        return sent == len(events)
+        # Send each key event as its own SendInput with a small settle delay
+        # instead of one atomic batch. Batching all press/release events with zero
+        # time between them makes Chromium/Electron (Signal) occasionally miss that
+        # a modifier was held when the main key arrives - which silently breaks
+        # MULTI-modifier combos like Ctrl+Shift+M (it degrades to Ctrl+M and the
+        # media tab never opens) while single-modifier combos (Ctrl+A/C/J) still
+        # work. Pressing modifiers first, letting them settle, then the key - the
+        # way a real keyboard does - makes Ctrl+Shift+M register reliably.
+        ok = True
+        for vk in vks:  # press in order: modifiers first, main key last
+            if _send_one_input(_make_key_event(vk, False)) != 1:
+                ok = False
+            time.sleep(key_delay)
+        for vk in reversed(vks):  # release in reverse order
+            if _send_one_input(_make_key_event(vk, True)) != 1:
+                ok = False
+            time.sleep(key_delay)
+        return ok
 else:  # pragma: no cover - non-Windows fallback
     def send_scancode_shortcut(keys: list[str]) -> bool:
         return False
@@ -1182,27 +1198,51 @@ class SignalUiDriver:
             pass
         return False
 
+    def close_open_panels(self) -> None:
+        # Close any AllMedia panel / media preview / details drawer left open by
+        # the PREVIOUS conversation. In Signal, Escape = popPanelForConversation
+        # (it pops one open panel and does NOT close the conversation). Without
+        # this, the next conversation still shows the previous media gallery, so
+        # name extraction copies the gallery instead of the transcript AND
+        # Ctrl+Shift+M does not reveal a fresh media tab. Two Escapes cover a
+        # stacked panel + preview. This mirrors the reset the diagnostic does
+        # right after opening a conversation, which is what made it work.
+        for _ in range(2):
+            if not send_scancode_shortcut(["escape"]):
+                self._send_shortcut(["escape"])
+            time.sleep(0.25)
+
     def open_media_view(self) -> None:
-        if self.window is not None:
-            self._bring_to_foreground()
-        # Deselect the Ctrl+A selection with a single left click in the message
-        # pane, then Ctrl+Shift+M - exactly the manual sequence. Log the title
-        # before/after the click so we can tell if the click accidentally lands
-        # in the LEFT conversation list (which would switch conversations).
-        try:
-            self._click_to_deselect()
-        except Exception:
-            logging.exception("Deselect click failed")
-        # Let the click's focus change settle before the shortcut. Manually there
-        # is a natural pause between the click and Ctrl+Shift+M; without it the
-        # shortcut can fire before Signal has focus in the message pane and the
-        # media view never opens.
-        time.sleep(0.6)
+        # NOTE: deliberately do NOT call _bring_to_foreground() here. Signal is
+        # already the foreground window from the immediately-preceding name
+        # extraction (get_current_conversation_title -> _send_shortcut brings it
+        # forward). Re-activating the window right before Ctrl+Shift+M suppresses
+        # the media tab (documented gotcha) and is the one thing the working
+        # diagnostic did NOT do before the shortcut.
+        # Clear the Ctrl+A text selection left over from name extraction BEFORE
+        # sending Ctrl+Shift+M. A mouse click is unreliable here: at any realistic
+        # coordinate in a full conversation it lands ON a message bubble, which
+        # puts Signal into "message-focused" mode and SUPPRESSES Ctrl+Shift+M, so
+        # the media tab never opens. Instead press Ctrl+J, which drops the text
+        # selection and focuses the last message at the conversation level - the
+        # confirmed-working state from which Ctrl+Shift+M opens All Media. Do NOT
+        # call _bring_to_foreground() between here and the shortcut; a re-activate
+        # in that gap also suppresses the media tab.
+        logging.info("Sending Ctrl+J to clear selection and focus last message")
+        if not send_scancode_shortcut(["ctrl", "j"]):
+            self._send_shortcut(["ctrl", "j"])
+        # Short settle so the selection clears before the shortcut, but keep it
+        # brief: Ctrl+Shift+M must follow as the very next action.
+        time.sleep(0.3)
         self._log_foreground_window("before Ctrl+Shift+M")
         logging.info("Sending Ctrl+Shift+M to open media view")
-        # Electron ignores virtual-key-only synthetic input (pyautogui), so use
-        # hardware scancodes.
-        if not send_scancode_shortcut(["ctrl", "shift", "m"]):
+        # Delivery matters here: hardware-scancode SendInput does NOT open All
+        # Media in this Signal build (confirmed via diagnose_media_tab.py), but
+        # pyautogui.hotkey does. Use it as the primary path, falling back to
+        # scancode only if pyautogui is unavailable.
+        if pyautogui is not None:
+            pyautogui.hotkey("ctrl", "shift", "m")
+        elif not send_scancode_shortcut(["ctrl", "shift", "m"]):
             self._send_shortcut(["ctrl", "shift", "m"])
         time.sleep(1.5)
         self._log_foreground_window("after Ctrl+Shift+M")
@@ -1943,7 +1983,16 @@ def build_message_md_argv(args: argparse.Namespace) -> list[str]:
 def configure_logging(log_file: Path) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     handlers = [logging.StreamHandler(sys.stdout), logging.FileHandler(log_file, encoding="utf-8")]
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
+    # force=True removes any handlers a previously-imported module (config /
+    # message_md) already attached to the root logger. Without it basicConfig is
+    # a silent no-op, so our stdout+file handlers never attach and every INFO
+    # diagnostic is lost (only default-format WARNINGs leak to stderr).
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=handlers,
+        force=True,
+    )
 
 
 def load_the_config(args: argparse.Namespace) -> config.Config:
