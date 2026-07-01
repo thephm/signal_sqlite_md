@@ -1338,6 +1338,11 @@ class SignalUiDriver:
             self.settings.poll_interval_seconds,
         )
         target = destination_dir / desired_name
+        # Preserve the REAL extension from the file Signal actually wrote (e.g.
+        # .jpg/.jpeg/.mp4/.mov). desired_name is often ".bin" because the content
+        # type is unknown up front; renaming to that would corrupt the extension.
+        if created.suffix and created.suffix.lower() != target.suffix.lower():
+            target = target.with_suffix(created.suffix)
         if target.exists():
             target.unlink()
         created.rename(target)
@@ -2226,7 +2231,13 @@ def load_the_config(args: argparse.Namespace) -> config.Config:
 def resolve_paths(args: argparse.Namespace, the_config: config.Config) -> AutomationSettings:
     validate_signal_executable(args.signal_exe)
 
-    downloads_root = Path(args.downloads_root or getattr(the_config, "output_folder", "") or ".")
+    # An explicit -o/--output-folder must win for where media is saved. Otherwise
+    # signal.sh's OUTPUT_DIR (applied earlier to downloads_root) or a cwd default
+    # would override it and media would land in the repo instead of -o.
+    if not _is_default_arg(args, "output_folder"):
+        downloads_root = Path(args.output_folder)
+    else:
+        downloads_root = Path(args.downloads_root or getattr(the_config, "output_folder", "") or ".")
     raw_state = Path(args.state_file) if args.state_file else downloads_root / "signal_ui_state.json"
     raw_log = Path(args.log_file) if args.log_file else downloads_root / "signal_ui_failures.log"
 
