@@ -292,6 +292,33 @@ def _set_if_default(args: argparse.Namespace, name: str, value: Any) -> None:
         setattr(args, name, value)
 
 
+def _read_settings_output_folder(config_dir: str) -> str:
+    # Read "output-folder" from the -c config's settings.json and resolve it to an
+    # absolute path (relative entries are resolved against the config dir so the
+    # result is stable regardless of the current working directory). Returns ""
+    # when unavailable. message_md's own -o default (".") overrides the settings
+    # value internally, so we read it here and pass it through explicitly.
+    if not config_dir:
+        return ""
+    settings_path = Path(config_dir) / "settings.json"
+    if not settings_path.exists():
+        return ""
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    value = data.get("output-folder") or data.get("output_folder") or ""
+    if not value:
+        return ""
+    path = Path(value)
+    if not path.is_absolute():
+        try:
+            path = (Path(config_dir) / value).resolve()
+        except Exception:
+            return value
+    return str(path)
+
+
 def infer_from_signal_sh(args: argparse.Namespace) -> argparse.Namespace:
     signal_sh = SCRIPT_DIR / "signal.sh"
     if not signal_sh.exists():
@@ -341,11 +368,17 @@ def infer_common_defaults(args: argparse.Namespace) -> argparse.Namespace:
                 break
 
     if _is_default_arg(args, "output_folder"):
-        candidates = [Path.cwd(), SCRIPT_DIR.parent / "dev-output"]
-        for candidate in candidates:
-            if candidate.exists():
-                args.output_folder = str(candidate)
-                break
+        # Prefer the -c config's settings.json "output-folder" so media (and the
+        # markdown message_md writes) land where the config says, not in the cwd.
+        cfg_out = _read_settings_output_folder(args.config_dir)
+        if cfg_out:
+            args.output_folder = cfg_out
+        else:
+            candidates = [Path.cwd(), SCRIPT_DIR.parent / "dev-output"]
+            for candidate in candidates:
+                if candidate.exists():
+                    args.output_folder = str(candidate)
+                    break
 
     if _is_default_arg(args, "downloads_root") and not _is_default_arg(args, "output_folder"):
         args.downloads_root = args.output_folder
