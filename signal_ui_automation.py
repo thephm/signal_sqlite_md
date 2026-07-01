@@ -414,6 +414,28 @@ def is_probable_conversation_title(value: str) -> bool:
         "download",
         "more",
         "menu",
+        # Conversation-header buttons/labels that the UIA fallback can pick up
+        # instead of the real name (observed: "More actions" leaking through and
+        # even tripping the end-of-list detection).
+        "more actions",
+        "more options",
+        "more info",
+        "conversation details",
+        "contact details",
+        "group details",
+        "start video call",
+        "start voice call",
+        "video call",
+        "voice call",
+        "call",
+        "back",
+        "close",
+        "mute",
+        "unmute",
+        "search in conversation",
+        "show conversation details",
+        "view all media",
+        "all media",
     }:
         return False
 
@@ -1678,8 +1700,16 @@ class SignalUiDriver:
             # Primary: select-all + copy, then parse the header name from the
             # clipboard. This is far more reliable than reading UIA nodes.
             title = self._read_conversation_name_via_clipboard()
-            if title:
+            # Validate: the clipboard parse can latch onto a message body (e.g.
+            # "I am leaving that to you...") when a conversation's header is not
+            # isolate-wrapped as expected. Reject anything that is not a
+            # plausible conversation title so we never match/skip on a sentence.
+            if title and is_probable_conversation_title(title):
                 return title
+            if title:
+                logging.info(
+                    "Discarding implausible clipboard title (not a name): %r", title
+                )
             # Fallback: read the header text nodes from the top of the pane.
             title = self._read_conversation_header_once()
             if title:
