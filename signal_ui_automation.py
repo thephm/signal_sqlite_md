@@ -1235,6 +1235,14 @@ class SignalUiDriver:
             time.sleep(0.25)
 
     def open_media_view(self) -> None:
+        # Close any leftover Windows Save dialog FIRST. An orphaned dialog (from a
+        # previous run) steals keyboard focus, so Ctrl+Shift+M would go to the
+        # dialog and the media panel would never open ("Media panel NOT detected").
+        strays = self._win32_close_save_dialogs()
+        if strays:
+            logging.info("Closed %d leftover Save dialog(s) before opening media", strays)
+            self._bring_to_foreground()
+            time.sleep(0.3)
         # NOTE: deliberately do NOT call _bring_to_foreground() here. Signal is
         # already the foreground window from the immediately-preceding name
         # extraction (get_current_conversation_title -> _send_shortcut brings it
@@ -1306,6 +1314,15 @@ class SignalUiDriver:
         # Save dialog. Returns the renamed saved file path.
         destination_dir.mkdir(parents=True, exist_ok=True)
         before = snapshot_files(destination_dir)
+
+        # Start from a clean slate: close any Save dialogs left open by a prior
+        # failed attempt so we never drive a stale/background dialog and never
+        # stack them. Then re-focus Signal so Ctrl+S opens a fresh dialog.
+        closed = self._close_all_save_dialogs()
+        if closed:
+            logging.info("Closed %d stray Save dialog(s) before saving", closed)
+            self._bring_to_foreground()
+            time.sleep(0.2)
 
         self._send_shortcut(["ctrl", "s"])
         time.sleep(0.4)
@@ -1551,44 +1568,190 @@ class SignalUiDriver:
 
         return True
 
-    def _handle_windows_save_dialog(self, destination_dir: Path) -> None:
-        if Desktop is None:
-            raise RuntimeError("pywinauto Desktop API is not available")
+    def _win32_find_save_dialogs(self) -> list[int]:
+        # HWNDs of every visible top-level "Save" dialog (window class "#32770").
+        # Win32 sees dialogs that the UIA Desktop enumeration sometimes misses.
+        if not IS_WINDOWS:
+            return []
+        import ctypes
+        from ctypes import wintypes
 
+        user32 = ctypes.windll.user32
+        handles: list[int] = []
+
+        EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+
+        def _cb(hwnd, _lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                cls = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, cls, 256)
+                if cls.value != "#32770":
+                    return True
+                length = user32.GetWindowTextLengthW(hwnd)
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                title = (buf.value or "").strip().lower()
+                if title.startswith("save"):
+                    handles.append(int(hwnd))
+            except Exception:
+                pass
+            return True
+
+        try:
+            user32.EnumWindows(EnumWindowsProc(_cb), 0)
+        except Exception:
+            return []
+        return handles
+
+    def _win32_close_save_dialogs(self) -> int:
+        # Close every top-level Windows "Save" dialog via the Win32 API. This
+        # catches ORPHANED dialogs left by dead python processes that the UIA
+        # Desktop enumeration cannot see (and which otherwise steal keyboard focus
+        # so Ctrl+Shift+M / Ctrl+S never reach Signal).
+        if not IS_WINDOWS:
+            return 0
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        WM_CLOSE = 0x0010
+        handles = self._win32_find_save_dialogs()
+        for hwnd in handles:
+            try:
+                user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            except Exception:
+                pass
+        if handles:
+            time.sleep(0.3)
+        return len(handles)
+
+    def _list_save_dialogs(self) -> list:
+        # Every currently-open Windows "Save As" / "Save" / overwrite-confirm
+        # dialog, in the order the OS returns them.
+        if Desktop is None:
+            return []
+        found: list = []
+        try:
+            for w in Desktop(backend="uia").windows(control_type="Window", visible_only=True):
+                try:
+                    title = normalize_text(w.window_text() or "")
+                except Exception:
+                    continue
+                if title in {"save as", "save", "save your file", "confirm save as"} or title.startswith("save"):
+                    found.append(w)
+        except Exception:
+            return found
+        return found
+
+    def _close_all_save_dialogs(self) -> int:
+        # Cancel EVERY open Save dialog. Retries used to stack multiple dialogs,
+        # after which the handler drove a background one (leaving the visible top
+        # dialog untouched and never saving). Starting each save from zero open
+        # dialogs removes that ambiguity. Win32 close runs first because it also
+        # reaches orphaned dialogs that UIA cannot see.
+        closed = self._win32_close_save_dialogs()
+        for _ in range(8):
+            dialogs = self._list_save_dialogs()
+            if not dialogs:
+                break
+            dlg = dialogs[0]
+            try:
+                dlg.set_focus()
+            except Exception:
+                pass
+            done = False
+            try:
+                btn = dlg.child_window(title="Cancel", control_type="Button")
+                if btn.exists():
+                    btn.click_input()
+                    done = True
+            except Exception:
+                done = False
+            if not done:
+                if send_keys is not None:
+                    try:
+                        send_keys("{ESC}", pause=0.02)
+                    except Exception:
+                        pass
+                elif pyautogui is not None:
+                    pyautogui.press("esc")
+            closed += 1
+            time.sleep(0.25)
+        return closed
+
+    def _handle_windows_save_dialog(self, destination_dir: Path) -> None:
         deadline = time.time() + max(1.0, self.settings.download_action_timeout_seconds)
-        dialog = None
+        hwnd = None
         while time.time() < deadline:
-            windows = Desktop(backend="uia").windows(control_type="Window", visible_only=True)
-            for candidate in windows:
-                title = normalize_text(candidate.window_text() or "")
-                if title in {"save as", "save", "save your file"} or title.startswith("save"):
-                    dialog = candidate
-                    break
-            if dialog is not None:
+            # Prefer Win32 detection (sees dialogs UIA misses); fall back to UIA.
+            found = self._win32_find_save_dialogs()
+            if found:
+                hwnd = found[-1]
+                break
+            if self._list_save_dialogs():
                 break
             time.sleep(0.2)
 
-        if dialog is None:
+        if hwnd is None and not self._list_save_dialogs():
             raise RuntimeError("Download action did not open a Windows Save dialog")
 
-        dialog.set_focus()
+        # Bring THIS dialog to the foreground so keystrokes land in it, not in a
+        # stale background dialog.
+        if hwnd is not None and IS_WINDOWS:
+            try:
+                import ctypes
 
-        # Focus address bar, set folder, then press Enter to accept default file name.
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                ctypes.windll.user32.BringWindowToTop(hwnd)
+            except Exception:
+                pass
+        else:
+            try:
+                self._list_save_dialogs()[-1].set_focus()
+            except Exception:
+                pass
+        time.sleep(0.25)
+
+        # PREPEND the destination folder to Signal's pre-filled file name. Alt+N
+        # focuses the File name box; Home moves to the start (clearing any
+        # selection); typing "<folder>\" turns "IMG_0081.jpg" into
+        # "<folder>\IMG_0081.jpg". This preserves the ORIGINAL name + extension
+        # (important for videos vs images) without having to read the field, then
+        # Enter saves it. wait_for_new_file + rename handle the final name.
+        folder_prefix = str(destination_dir)
+        if not folder_prefix.endswith("\\"):
+            folder_prefix += "\\"
+
         if send_keys is not None:
-            send_keys("^l", pause=0.02, with_spaces=True)
-            send_keys(str(destination_dir), pause=0.01, with_spaces=True)
-            send_keys("{ENTER}", pause=0.02, with_spaces=True)
-            time.sleep(0.2)
-            send_keys("{ENTER}", pause=0.02, with_spaces=True)
-            return
-
-        if pyautogui is None:
+            escaped = "".join("{" + c + "}" if c in "{}()+^%~[]" else c for c in folder_prefix)
+            send_keys("%n", pause=0.05, with_spaces=True)
+            send_keys("{HOME}", pause=0.03, with_spaces=True)
+            send_keys(escaped, pause=0.004, with_spaces=True)
+            time.sleep(0.1)
+            send_keys("{ENTER}", pause=0.03, with_spaces=True)
+        elif pyautogui is not None:
+            pyautogui.hotkey("alt", "n")
+            time.sleep(0.05)
+            pyautogui.press("home")
+            pyautogui.typewrite(folder_prefix, interval=0.005)
+            time.sleep(0.1)
+            pyautogui.press("enter")
+        else:
             raise RuntimeError("No keyboard backend available to interact with Save dialog")
-        pyautogui.hotkey("ctrl", "l")
-        pyautogui.typewrite(str(destination_dir), interval=0.01)
-        pyautogui.press("enter")
-        time.sleep(0.2)
-        pyautogui.press("enter")
+
+        # If a dialog is still open (e.g. an overwrite "Confirm Save As", or Enter
+        # didn't land on Save), press Enter once more. Do NOT cancel here - the
+        # next save starts by closing any strays via _close_all_save_dialogs.
+        time.sleep(0.4)
+        if self._win32_find_save_dialogs():
+            if send_keys is not None:
+                try:
+                    send_keys("{ENTER}", pause=0.03, with_spaces=True)
+                except Exception:
+                    pass
+            elif pyautogui is not None:
+                pyautogui.press("enter")
 
     def _find_conversation_list_item(self, aliases: list[str]):
         assert self.window is not None
