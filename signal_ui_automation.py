@@ -457,7 +457,10 @@ def is_probable_conversation_title(value: str) -> bool:
         "contact details",
         "group details",
         "start video call",
+        "start a video call",
         "start voice call",
+        "start a voice call",
+        "start a call",
         "video call",
         "voice call",
         "call",
@@ -500,6 +503,39 @@ _HEADER_MARKERS = (
 )
 
 
+def clean_conversation_title(value: str) -> str:
+    """Normalize raw conversation title text to the best candidate name.
+
+    Signal header text can include wrappers/suffixes such as Unicode isolate
+    chars or event text (for example "Lisa Jansen reacted with ..."). Strip
+    those before matching against person/group aliases.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+
+    text = text.replace("\u2068", "").replace("\u2069", "")
+    text = re.sub(r"\s+", " ", text).strip()
+    low = text.lower()
+
+    # Event-style overlays can appear in the title region and must not drive
+    # slug matching.
+    if low.startswith("you reacted with"):
+        return ""
+    for marker in (" reacted with ", " reacted to "):
+        idx = low.find(marker)
+        if idx > 0:
+            return text[:idx].strip(" \t:-")
+
+    # If a header marker leaks into the copied line, keep only the leading name.
+    for marker in _HEADER_MARKERS:
+        idx = low.find(marker)
+        if idx > 0:
+            return text[:idx].strip(" \t:-")
+
+    return text
+
+
 def parse_conversation_name_from_clipboard(text: str) -> str:
     """Extract the conversation (contact/group) name from copied conversation text.
 
@@ -519,6 +555,18 @@ def parse_conversation_name_from_clipboard(text: str) -> str:
         return ""
 
     matches = list(_ISOLATE_RE.finditer(text))
+    non_empty_lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    # If the very top visible line contains an isolate-wrapped title, use it.
+    # After repeatedly pressing Home, this is usually the conversation title
+    # (group name or contact name) and should win over member names below.
+    if non_empty_lines:
+        top_line = non_empty_lines[0]
+        top_match = _ISOLATE_RE.search(top_line)
+        if top_match:
+            top_name = clean_conversation_title(top_match.group(1).strip())
+            if top_name and is_probable_conversation_title(top_name):
+                return top_name
 
     # Prefer an isolate-wrapped name on a recognizable header line.
     for m in matches:
@@ -526,15 +574,33 @@ def parse_conversation_name_from_clipboard(text: str) -> str:
         line_end = text.find("\n", m.end())
         if line_end == -1:
             line_end = len(text)
-        line = text[line_start:line_end].lower()
-        if any(marker in line for marker in _HEADER_MARKERS):
-            name = m.group(1).strip()
-            if name:
+        line_raw = text[line_start:line_end]
+        line = line_raw.lower()
+        marker_hit = any(marker in line for marker in _HEADER_MARKERS)
+        if marker_hit:
+            # In group chats, marker lines often contain member names while the
+            # true group title is on the previous non-empty line.
+            prev_block = text[:line_start].splitlines()
+            prev_line = ""
+            for raw_prev in reversed(prev_block):
+                if raw_prev.strip():
+                    prev_line = raw_prev.strip()
+                    break
+            if prev_line:
+                prev_match = _ISOLATE_RE.search(prev_line)
+                if prev_match:
+                    prev_name = clean_conversation_title(prev_match.group(1).strip())
+                    if prev_name and is_probable_conversation_title(prev_name):
+                        return prev_name
+
+        if marker_hit:
+            name = clean_conversation_title(m.group(1).strip())
+            if name and is_probable_conversation_title(name):
                 return name
 
     # Otherwise, take the first isolate-wrapped segment.
     if matches:
-        name = matches[0].group(1).strip()
+        name = clean_conversation_title(matches[0].group(1).strip())
         if name:
             return name
 
@@ -612,7 +678,7 @@ def build_target_index(targets: list[Any]) -> dict[str, list[Any]]:
 
 
 def resolve_target_for_conversation(label: str, target_index: dict[str, list[Any]]) -> Any | None:
-    label_key = normalize_text(label)
+    label_key = normalize_text(clean_conversation_title(label))
     if not label_key:
         return None
 
@@ -1064,27 +1130,72 @@ class SignalUiDriver:
             user32.CloseClipboard()
 
     def _read_conversation_name_via_clipboard(self) -> str:
-        """Select-all + copy the open conversation and parse the header name."""
+        """Copy conversation text and parse the header name.
+
+        Primary path follows the proven sequence for long chats:
+        Ctrl+J (focus message pane) -> Home (jump to top/load history) -> Ctrl+C.
+        If top-copy does not yield a name, fall back to Ctrl+A/C once and then
+        immediately clear selection with Ctrl+J so later shortcuts still work.
+        """
         if self.window is not None:
             self._bring_to_foreground()
 
-        # Ctrl+J selects the last message, putting focus in the message pane, so
-        # the following Ctrl+A selects the conversation transcript (not the
-        # search box). Then Ctrl+C copies it for name extraction.
+        # Ctrl+J puts focus in the message pane (not search/composer). Home then
+        # jumps to the top so Signal loads header/history in long conversations.
+        # Ctrl+C after Home captures top context and avoids parsing a mid-thread
+        # reaction/message as the conversation title.
         if not send_scancode_shortcut(["ctrl", "j"]):
             self._send_shortcut(["ctrl", "j"])
         time.sleep(0.2)
 
+        # Keep paging Home until copied text stabilizes. In long threads, the
+        # first Home may still be mid-history while older messages load.
+        text = ""
+        previous_text = ""
+        stable_reads = 0
+        for _ in range(4):
+            self._send_shortcut(["home"])
+            time.sleep(0.35)
+
+            self._clear_clipboard()
+            self._send_shortcut(["ctrl", "c"])
+            time.sleep(0.25)
+
+            current = self._read_clipboard_text()
+            if current:
+                text = current
+                name = parse_conversation_name_from_clipboard(current)
+                if name:
+                    return name
+            if current and current == previous_text:
+                stable_reads += 1
+                if stable_reads >= 1:
+                    break
+            else:
+                stable_reads = 0
+            previous_text = current
+
+        if text:
+            name = parse_conversation_name_from_clipboard(text)
+            if name:
+                return name
+
+        # Fallback: full transcript copy for layouts where Home+Ctrl+C does not
+        # include enough header content. Immediately clear selection afterwards
+        # so we do not leave Ctrl+A selected text on screen.
         self._clear_clipboard()
         self._send_shortcut(["ctrl", "a"])
         time.sleep(0.15)
         self._send_shortcut(["ctrl", "c"])
         time.sleep(0.25)
+        full_text = self._read_clipboard_text()
+        if not send_scancode_shortcut(["ctrl", "j"]):
+            self._send_shortcut(["ctrl", "j"])
+        time.sleep(0.15)
 
-        text = self._read_clipboard_text()
-        if not text:
+        if not full_text:
             return ""
-        return parse_conversation_name_from_clipboard(text)
+        return parse_conversation_name_from_clipboard(full_text)
 
     def _mouse_move_click_screen(self, x: int, y: int, button: str = "left") -> None:
         if pyautogui is not None:
@@ -1168,6 +1279,18 @@ class SignalUiDriver:
                 self.window.set_focus()
             except Exception:
                 pass
+        # CRITICAL: reading the previous conversation's name leaves focus trapped
+        # inside the message pane with an active Ctrl+A selection ("message
+        # focused" mode). In that state Signal SUPPRESSES the "Jump to chat"
+        # accelerator (Ctrl+1..9), so the next Ctrl+<index> is a no-op and the
+        # slot still shows the previous conversation - which makes the caller
+        # think it reached the last chat and stop. Press Escape first to pop any
+        # open panel AND leave message-focused mode / drop the selection so the
+        # jump registers.
+        for _ in range(2):
+            if not send_scancode_shortcut(["escape"]):
+                self._send_shortcut(["escape"])
+            time.sleep(0.1)
         if index <= 9:
             logging.info("Sending Ctrl+%d", index)
             self._send_shortcut(["ctrl", str(index)])
@@ -1345,6 +1468,7 @@ class SignalUiDriver:
     def save_media_preview_item(self, destination_dir: Path, desired_name: str) -> Path:
         # In the media preview, Ctrl+S saves the current item via the Windows
         # Save dialog. Returns the renamed saved file path.
+        destination_dir = destination_dir.resolve()
         destination_dir.mkdir(parents=True, exist_ok=True)
         before = snapshot_files(destination_dir)
 
@@ -1719,6 +1843,11 @@ class SignalUiDriver:
         return closed
 
     def _handle_windows_save_dialog(self, destination_dir: Path) -> None:
+        # Save As can resolve relative paths against an internal shell cwd (not
+        # this process cwd). Always type an absolute existing directory.
+        destination_dir = destination_dir.resolve()
+        destination_dir.mkdir(parents=True, exist_ok=True)
+
         deadline = time.time() + max(1.0, self.settings.download_action_timeout_seconds)
         hwnd = None
         while time.time() < deadline:
@@ -1887,7 +2016,7 @@ class SignalUiDriver:
 
         raise RuntimeError(f"Could not locate conversation '{label}' in Signal using list lookup or search")
 
-    def get_current_conversation_title(self, retries: int = 5) -> str:
+    def get_current_conversation_title(self, retries: int = 2) -> str:
         # Read the header title of the currently open conversation. In Signal
         # Desktop the contact/group name is the first/topmost text at the top of
         # the right-hand conversation pane. It can render as a Text node or as a
@@ -1901,6 +2030,7 @@ class SignalUiDriver:
             # Primary: select-all + copy, then parse the header name from the
             # clipboard. This is far more reliable than reading UIA nodes.
             title = self._read_conversation_name_via_clipboard()
+            title = clean_conversation_title(title)
             # Validate: the clipboard parse can latch onto a message body (e.g.
             # "I am leaving that to you...") when a conversation's header is not
             # isolate-wrapped as expected. Reject anything that is not a
@@ -1913,6 +2043,7 @@ class SignalUiDriver:
                 )
             # Fallback: read the header text nodes from the top of the pane.
             title = self._read_conversation_header_once()
+            title = clean_conversation_title(title)
             if title:
                 return title
             time.sleep(0.3)
@@ -1958,6 +2089,18 @@ class SignalUiDriver:
                 if not txt:
                     continue
                 raw_texts.append(txt)
+
+                # Signal can expose a combined header line such as
+                # "⁨Lisa Jansen⁩ This person is in your contacts.". Pull the
+                # isolate-wrapped segment first so the actual name is not
+                # rejected by sentence-length/word-count heuristics.
+                iso_match = _ISOLATE_RE.search(txt)
+                if iso_match:
+                    isolate_name = clean_conversation_title(iso_match.group(1).strip())
+                    if isolate_name and is_probable_conversation_title(isolate_name):
+                        candidates.append((r.top, r.left, isolate_name))
+                        continue
+
                 if not is_probable_conversation_title(txt):
                     continue
                 candidates.append((r.top, r.left, txt))
@@ -2343,6 +2486,16 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
     if activate_target:
         driver.activate_target(label, aliases)
 
+    # Probe mode: identify/match conversations quickly without opening media,
+    # save dialogs, or mutating completion state.
+    if settings.max_attachments_per_conversation <= 0:
+        logging.info(
+            "max_attachments_per_conversation=%d; skipping media workflow for %s",
+            settings.max_attachments_per_conversation,
+            slug,
+        )
+        return []
+
     driver.reset_message_scan()
     driver.open_media_view()
     media_dir = ensure_media_folder(Path(settings.downloads_root), slug, create=False)
@@ -2419,6 +2572,16 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
     except Exception:
         pass
 
+    # Ensure no panel/save dialog state leaks into the next Ctrl+N slot.
+    try:
+        driver._close_all_save_dialogs()
+    except Exception:
+        pass
+    try:
+        driver.close_open_panels()
+    except Exception:
+        pass
+
     changed = update_markdown_files(Path(settings.downloads_root), slug, records)
     if changed:
         logging.info("Updated %d markdown files for %s", len(changed), slug)
@@ -2469,7 +2632,10 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
         return 0
 
     processed = 0
-    slots = min(settings.shortcut_slots, len(targets), 10)
+    # Traverse visible Signal slots independent of how many config targets are
+    # currently filtered. Otherwise --targets with a single slug incorrectly
+    # forces one-slot traversal even when --shortcut-slots requests more.
+    slots = min(max(1, settings.shortcut_slots), 10)
     logging.info("Shortcut-first mode processing %d conversation slots (Ctrl+1..Ctrl+%d)", slots, slots)
 
     # Warm up focus so the very first Ctrl+1 is not lost while Signal is still
@@ -2492,6 +2658,11 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
         try:
             logging.info("Opening conversation slot %d with Ctrl+%d", idx, idx)
             driver.open_conversation_by_shortcut(idx)
+            # Clear any leftover preview/media panels from the previous slot.
+            try:
+                driver.close_open_panels()
+            except Exception:
+                pass
 
             # Identify the conversation ONLY from the visible header name. Never
             # guess from config order, so media is never saved under the wrong
@@ -2502,24 +2673,40 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
                 logging.warning("Slot %d: could not read the conversation name; skipping this slot", idx)
                 continue
 
-            # If this slot shows the same conversation as the previous one, the
-            # Ctrl+N index has run past the end of the list (it stays on the last
-            # conversation), so we are done.
+            is_note_to_self = normalize_text(title) in {"note to self", "notes to self"}
+            matched_for_title = None if is_note_to_self else resolve_target_for_conversation(title, target_index)
+
+            # If this slot shows the same conversation as the previous one, a
+            # shortcut can occasionally be missed. Re-issue Ctrl+N once before
+            # deciding we reached the last conversation.
             title_norm = normalize_text(title)
-            if previous_title_norm is not None and title_norm == previous_title_norm:
-                logging.info(
-                    "Slot %d shows the same conversation as the previous slot (%r); reached the last conversation, stopping",
-                    idx, title,
+            if (
+                previous_title_norm is not None
+                and title_norm == previous_title_norm
+                and (is_note_to_self or matched_for_title is not None)
+            ):
+                logging.warning(
+                    "Slot %d initially matched previous conversation (%r); retrying Ctrl+%d once",
+                    idx, title, idx,
                 )
-                # Leave the UI tidy: clear the leftover Ctrl+A text selection.
-                try:
-                    driver._click_to_deselect()
-                except Exception:
-                    logging.exception("Final deselect click failed")
-                break
+                driver.open_conversation_by_shortcut(idx)
+                title_retry = driver.get_current_conversation_title()
+                retry_norm = normalize_text(title_retry)
+                logging.info("Slot %d retry: read conversation header title = %r", idx, title_retry)
+                if title_retry and retry_norm != previous_title_norm:
+                    title = title_retry
+                    title_norm = retry_norm
+                    is_note_to_self = normalize_text(title) in {"note to self", "notes to self"}
+                    matched_for_title = None if is_note_to_self else resolve_target_for_conversation(title, target_index)
+                else:
+                    logging.info(
+                        "Slot %d still shows the same conversation as previous after retry (%r); reached the last conversation, stopping",
+                        idx, title_retry or title,
+                    )
+                    break
             previous_title_norm = title_norm
 
-            if normalize_text(title) in {"note to self", "notes to self"}:
+            if is_note_to_self:
                 if not settings.me:
                     logging.warning("Slot %d is 'Note to Self' but no --me slug is set; skipping", idx)
                     continue
@@ -2530,7 +2717,7 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
                 slug = settings.me
                 logging.info("Slot %d header 'Note to Self' mapped to your slug %s", idx, slug)
             else:
-                target = resolve_target_for_conversation(title, target_index)
+                target = matched_for_title
                 if target is None:
                     logging.warning("Slot %d header '%s' did not match any known person; skipping", idx, title)
                     continue
@@ -2606,6 +2793,22 @@ def main() -> int:
 
     wanted_targets = {slug.strip() for slug in args.targets.split(',') if slug.strip()} or None
     targets = iter_targets(the_config, wanted_targets)
+    completed_count = len(set(state.data.get("completed", [])))
+    logging.info(
+        "Run settings: scan_order=%s shortcut_slots=%d max_attachments=%d targets_filter=%s matched_targets=%d state_file=%s completed=%d",
+        settings.scan_order,
+        settings.shortcut_slots,
+        settings.max_attachments_per_conversation,
+        sorted(wanted_targets) if wanted_targets else "<all>",
+        len(targets),
+        settings.state_file,
+        completed_count,
+    )
+    if settings.max_attachments_per_conversation <= 0:
+        logging.warning(
+            "max_attachments_per_conversation=%d means probe mode: no media panels/dialogs are opened and no targets are marked completed",
+            settings.max_attachments_per_conversation,
+        )
 
     driver = SignalUiDriver(settings)
     if not settings.dry_run and not args.manifest_only:
