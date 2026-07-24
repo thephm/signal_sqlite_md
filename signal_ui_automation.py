@@ -766,6 +766,26 @@ def wait_for_new_file(folder: Path, before: set[Path], timeout: float, poll_inte
     raise TimeoutError(f"No new file appeared in {folder} within {timeout} seconds")
 
 
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    for index in range(2, 10000):
+        candidate = path.with_name(f"{path.stem}_{index:03d}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+
+    raise FileExistsError(f"Could not find an unused filename for {path}")
+
+
+def build_preserved_download_name(desired_name: str, original_name: str) -> str:
+    return original_name or desired_name
+
+
+def source_label_from_saved_name(slug: str, saved_filename: str) -> str:
+    return saved_filename
+
+
 def render_media_link(record: MediaRecord) -> str:
     target = record.markdown_target.replace('\\', '/')
     if record.media_kind == "video":
@@ -1494,14 +1514,12 @@ class SignalUiDriver:
             self.settings.attachment_wait_seconds,
             self.settings.poll_interval_seconds,
         )
-        target = destination_dir / desired_name
+        target = destination_dir / build_preserved_download_name(desired_name, created.name)
         # Preserve the REAL extension from the file Signal actually wrote (e.g.
-        # .jpg/.jpeg/.mp4/.mov). desired_name is often ".bin" because the content
-        # type is unknown up front; renaming to that would corrupt the extension.
+        # .jpg/.jpeg/.mp4/.mov) if the original name was not available.
         if created.suffix and created.suffix.lower() != target.suffix.lower():
             target = target.with_suffix(created.suffix)
-        if target.exists():
-            target.unlink()
+        target = unique_path(target)
         created.rename(target)
         return target
 
@@ -2275,7 +2293,7 @@ def build_records_for_target(downloads_root: Path, target: Any, media_count: int
     media_dir = ensure_media_folder(downloads_root, slug, create=False)
     records: list[MediaRecord] = []
     for index in range(media_count):
-        saved_filename = build_saved_name(slug, datetime.now().strftime("%Y%m%d_%H%M%S"), index + 1, None)
+        saved_filename = f"untitled_{index + 1:03d}.jpg"
         saved_path = media_dir / saved_filename
         records.append(
             MediaRecord(
@@ -2513,7 +2531,7 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
     index = 0
     while index < settings.max_attachments_per_conversation:
         index += 1
-        desired_name = build_saved_name(slug, datetime.now().strftime("%Y%m%d_%H%M%S"), index, None)
+        desired_name = f"untitled_{index:03d}.jpg"
 
         saved_path = None
         for attempt in range(1, 4):
@@ -2551,7 +2569,7 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
             slug=slug,
             label=label,
             media_kind="image",
-            source_label=Path(desired_name).stem,
+            source_label=source_label_from_saved_name(slug, saved_path.name),
             saved_filename=saved_path.name,
             saved_path=str(saved_path),
             markdown_target=f"media/{saved_path.name}",

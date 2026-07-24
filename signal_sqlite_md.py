@@ -412,7 +412,9 @@ def parse_row(row, message, field_map):
         body_index = field_index(SIGNAL_BODY, field_map)
         message.body = row[body_index]
 
-        message.has_attachments = field_index(SIGNAL_HAS_ATTACHMENTS, field_map)
+        has_attachments_index = field_index(SIGNAL_HAS_ATTACHMENTS, field_map)
+        has_attachments_value = row[has_attachments_index] if has_attachments_index != -1 else ""
+        message.has_attachments = str(has_attachments_value).strip().lower() in ["1", "true", "yes"]
 
         try:
             service_id_index = field_index(SIGNAL_SOURCE_SERVICE_ID, field_map)
