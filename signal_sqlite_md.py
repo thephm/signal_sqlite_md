@@ -1,7 +1,9 @@
 import csv
 import time
 import json
+import re
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 import tzlocal # pip install tzlocal
 
 import sys
@@ -40,11 +42,36 @@ JSON_QUOTE = "quote"
 JSON_QUOTE_ID = "id"
 JSON_QUOTE_TEXT = "text"
 
+URL_RE = re.compile(r'https?://[^\s<>"\]]+')
+TRAILING_URL_PUNCTUATION = ".,;:!?)"
+
 SignalFields = [
     SIGNAL_ROW_ID, SIGNAL_ID, SIGNAL_JSON, SIGNAL_SENT_AT, 
     SIGNAL_CONVERSATION_ID, SIGNAL_SOURCE, SIGNAL_HAS_ATTACHMENTS, 
     SIGNAL_TYPE, SIGNAL_BODY, SIGNAL_SOURCE_SERVICE_ID
 ]
+
+def strip_shared_url_query_params(text):
+    if not text:
+        return text
+
+    def clean_match(match):
+        url = match.group(0)
+        suffix = ""
+        while url and url[-1] in TRAILING_URL_PUNCTUATION:
+            suffix = url[-1] + suffix
+            url = url[:-1]
+
+        if "?" not in url:
+            return url + suffix
+
+        parts = urlsplit(url)
+        if not parts.scheme or not parts.netloc or not parts.query:
+            return match.group(0)
+
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, "", parts.fragment)) + suffix
+
+    return URL_RE.sub(clean_match, text)
 
 def parse_header(row, field_map):
     """
@@ -197,7 +224,7 @@ def parse_quote(data, the_message):
 
     try:
         the_message.quote.id = data[JSON_QUOTE_ID]
-        the_message.quote.text = data[JSON_QUOTE_TEXT]
+        the_message.quote.text = strip_shared_url_query_params(data[JSON_QUOTE_TEXT])
     except:
         pass
 
@@ -410,7 +437,7 @@ def parse_row(row, message, field_map):
     if type in [SIGNAL_INCOMING, SIGNAL_OUTGOING]:
 
         body_index = field_index(SIGNAL_BODY, field_map)
-        message.body = row[body_index]
+        message.body = strip_shared_url_query_params(row[body_index])
 
         has_attachments_index = field_index(SIGNAL_HAS_ATTACHMENTS, field_map)
         has_attachments_value = row[has_attachments_index] if has_attachments_index != -1 else ""
