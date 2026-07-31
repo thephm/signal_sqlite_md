@@ -145,7 +145,7 @@ where:
 
 If you want to stay inside Signal Desktop and save attachments from the UI instead of working from the decrypted SQLite export, use the new `signal_ui_automation.py` entrypoint.
 
-It reuses the same `message_md` config-loading path as `signal_sqlite_md.py`, keeps a resumable state file, and writes downloaded media into `People/<person-slug>/media` before rewriting markdown links to the saved filenames.
+It reuses the same `message_md` config-loading path as `signal_sqlite_md.py`, keeps a resumable state file, and writes downloaded media into `People/<person-slug>/media` or `People/groups/<group-slug>/media` before rewriting markdown links to the saved filenames.
 
 Default traversal is shortcut-first (`Ctrl+1`, `Ctrl+2`, ...): for each visible conversation slot, it opens the conversation, scans messages on the right pane, right-clicks each candidate message, and only downloads when the first context-menu item is `Download`.
 
@@ -183,6 +183,21 @@ Dry run:
 
 ```
 .\run_signal_ui_automation.ps1 -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -OutputFolder C:\data\dev-output -Me bernie -DryRun
+```
+
+Useful media-run options are also forwarded by the launcher, including `-ScanOrder`, `-ShortcutSlots`, `-MaxAttachmentsPerConversation`, `-AttachmentWaitSeconds`, and `-DownloadActionTimeoutSeconds`.
+
+The automation resumes from `signal_ui_state.json`; completed slugs are skipped before the media tab is opened. To reprocess media, either pass a fresh state path or clear the existing state deliberately:
+
+```
+.\run_signal_ui_automation.ps1 -StateFile C:\data\dev-output\signal_ui_state_retry.json
+.\run_signal_ui_automation.ps1 -ClearState
+```
+
+To rerun a completed target without changing state files, pass `-ForceReprocess`:
+
+```
+.\run_signal_ui_automation.ps1 -Targets lisa -ForceReprocess -MaxAttachmentsPerConversation 3
 ```
 
 If `pywinauto` is missing in the selected interpreter, either let the launcher install dependencies:

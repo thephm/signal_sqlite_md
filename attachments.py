@@ -27,6 +27,12 @@ import config
 ATTACHMENTS_FILENAME = "message_attachments.csv"
 MISSING_MESSAGE_IDS_WARNED = set()
 
+
+def image_link_width(filename, the_config):
+    if PurePath(filename).name.lower().startswith("screenshot"):
+        return 250
+    return the_config.image_width
+
 # As at 2025-06-28 there are 57 fields in the `message_attachments.csv` file 
 # but we only need a few of them. The rest are not used in this tool.
 
@@ -67,7 +73,7 @@ class SignalAttachment(attachment.Attachment):
             link = "!"
         link += "[[" + filename
         if self.is_image() and the_config.image_width:
-            link += "|" + str(the_config.image_width)
+            link += "|" + str(image_link_width(filename, the_config))
         link += "]]" + "\n"
         return link
 

@@ -209,6 +209,7 @@ class AutomationSettings:
     mouse_move_duration_seconds: float = 0.15
     me: str = ""
     menu_key_delay_seconds: float = 0.6
+    force_reprocess: bool = False
 
 
 @dataclass
@@ -734,8 +735,25 @@ def build_saved_name(slug: str, timestamp: str, index: int, content_type: str | 
     return f"{prefix}_{time_part}_{index:03d}{extension}"
 
 
-def ensure_media_folder(output_root: Path, slug: str, create: bool = False) -> Path:
-    media_dir = output_root / "People" / slug / "media"
+def is_group_target(target: Any) -> bool:
+    return bool(getattr(target, "description", "") or getattr(target, "name", "")) and not (
+        getattr(target, "first_name", "") or getattr(target, "last_name", "")
+    )
+
+
+def target_root_folder(output_root: Path, target_or_slug: Any) -> Path:
+    if isinstance(target_or_slug, str):
+        slug = target_or_slug or "unknown"
+        return output_root / "People" / slug
+
+    slug = getattr(target_or_slug, "slug", "unknown") or "unknown"
+    if is_group_target(target_or_slug):
+        return output_root / "People" / "groups" / slug
+    return output_root / "People" / slug
+
+
+def ensure_media_folder(output_root: Path, target_or_slug: Any, create: bool = False) -> Path:
+    media_dir = target_root_folder(output_root, target_or_slug) / "media"
     if create:
         media_dir.mkdir(parents=True, exist_ok=True)
     return media_dir
@@ -779,18 +797,30 @@ def unique_path(path: Path) -> Path:
 
 
 def build_preserved_download_name(desired_name: str, original_name: str) -> str:
-    return original_name or desired_name
+    saved_name = original_name or desired_name
+    path = Path(saved_name)
+    if path.name.lower() == "spelling bee hints.jpg":
+        return f"{path.stem} {datetime.now().strftime('%Y-%m-%d')}{path.suffix}"
+    return saved_name
+
+
+def same_filesystem_path(left: Path, right: Path) -> bool:
+    return os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right))
 
 
 def source_label_from_saved_name(slug: str, saved_filename: str) -> str:
     return saved_filename
 
 
+def media_wikilink_width(filename: str) -> int:
+    return 250 if Path(filename).name.lower().startswith("screenshot") else 450
+
+
 def render_media_link(record: MediaRecord) -> str:
     target = record.markdown_target.replace('\\', '/')
     if record.media_kind == "video":
         return f"[{record.saved_filename}]({target})"
-    return f"![]({target})"
+    return f"![[{target}|{media_wikilink_width(record.saved_filename)}]]"
 
 
 def replace_media_links(text: str, records: Iterable[MediaRecord]) -> str:
@@ -814,12 +844,29 @@ def replace_media_links(text: str, records: Iterable[MediaRecord]) -> str:
     return WIKILINK_RE.sub(replace_match, text)
 
 
-def update_markdown_files(output_root: Path, slug: str, records: list[MediaRecord]) -> list[Path]:
-    slug_root = output_root / "People" / slug
-    if not slug_root.exists():
-        # Backward compatibility for older exports that may not use People/<slug>.
-        slug_root = output_root / slug
-    if not slug_root.exists():
+def markdown_root_candidates(output_root: Path, slug: str, target: Any | None = None) -> list[Path]:
+    candidates: list[Path] = []
+    if target is not None:
+        candidates.append(target_root_folder(output_root, target))
+    candidates.extend([
+        output_root / "People" / "groups" / slug,
+        output_root / "People" / slug,
+        output_root / slug,
+    ])
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = os.path.normcase(os.path.abspath(candidate))
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def update_markdown_files(output_root: Path, slug: str, records: list[MediaRecord], target: Any | None = None) -> list[Path]:
+    slug_root = next((candidate for candidate in markdown_root_candidates(output_root, slug, target) if candidate.exists()), None)
+    if slug_root is None:
         return []
 
     changed: list[Path] = []
@@ -1519,6 +1566,8 @@ class SignalUiDriver:
         # .jpg/.jpeg/.mp4/.mov) if the original name was not available.
         if created.suffix and created.suffix.lower() != target.suffix.lower():
             target = target.with_suffix(created.suffix)
+        if same_filesystem_path(created, target):
+            return created
         target = unique_path(target)
         created.rename(target)
         return target
@@ -2290,7 +2339,7 @@ def validate_ui_runtime(settings: AutomationSettings) -> None:
 def build_records_for_target(downloads_root: Path, target: Any, media_count: int = 1) -> list[MediaRecord]:
     slug = getattr(target, "slug", "unknown") or "unknown"
     label = getattr(getattr(target, "identity", None), "full_name", slug) or slug
-    media_dir = ensure_media_folder(downloads_root, slug, create=False)
+    media_dir = ensure_media_folder(downloads_root, target, create=False)
     records: list[MediaRecord] = []
     for index in range(media_count):
         saved_filename = f"untitled_{index + 1:03d}.jpg"
@@ -2347,6 +2396,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-require-visible-mouse", action="store_true", help="Allow non-visible click backend when pyautogui is unavailable")
     parser.add_argument("--mouse-move-duration-seconds", type=float, default=0.15, help="Seconds per mouse move step for visible pointer movement")
     parser.add_argument("--targets", default="", help="Comma-separated slug list to limit the run")
+    parser.add_argument("--force-reprocess", action="store_true", help="Process matching conversations even when their slug is already marked completed in the state file")
     parser.add_argument("--manifest-only", action="store_true", help="Only update markdown from the saved manifest")
     parser.add_argument("--traceback", action="store_true", help="Show full traceback on errors")
 
@@ -2469,6 +2519,7 @@ def resolve_paths(args: argparse.Namespace, the_config: config.Config) -> Automa
         require_visible_mouse=not args.no_require_visible_mouse,
         mouse_move_duration_seconds=args.mouse_move_duration_seconds,
         me=args.me,
+        force_reprocess=args.force_reprocess,
     )
 
 
@@ -2516,7 +2567,7 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
 
     driver.reset_message_scan()
     driver.open_media_view()
-    media_dir = ensure_media_folder(Path(settings.downloads_root), slug, create=False)
+    media_dir = ensure_media_folder(Path(settings.downloads_root), target, create=False)
 
     # New media workflow:
     #   Ctrl+Shift+M (open_media_view) -> Ctrl+T lands on the first media item ->
@@ -2600,7 +2651,7 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
     except Exception:
         pass
 
-    changed = update_markdown_files(Path(settings.downloads_root), slug, records)
+    changed = update_markdown_files(Path(settings.downloads_root), slug, records, target)
     if changed:
         logging.info("Updated %d markdown files for %s", len(changed), slug)
 
@@ -2627,7 +2678,7 @@ def process_signal_first(driver: SignalUiDriver, settings: AutomationSettings, s
             continue
 
         slug = getattr(target, "slug", "unknown") or "unknown"
-        if slug in set(state.data.get("completed", [])):
+        if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
             logging.info("Skipping completed target %s", slug)
             continue
 
@@ -2742,8 +2793,8 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
                 slug = getattr(target, "slug", "unknown") or "unknown"
                 logging.info("Slot %d header '%s' matched person %s", idx, title, slug)
 
-            if slug in set(state.data.get("completed", [])):
-                logging.info("Skipping completed target %s", slug)
+            if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
+                logging.info("Skipping completed target %s before opening media; use a fresh --state-file or remove it from completed to reprocess", slug)
                 continue
 
             process_target(driver, settings, state, target, activate_target=False)
@@ -2762,7 +2813,7 @@ def process_config_first(driver: SignalUiDriver, settings: AutomationSettings, s
     processed = 0
     for target in targets:
         slug = getattr(target, "slug", "unknown") or "unknown"
-        if slug in set(state.data.get("completed", [])):
+        if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
             logging.info("Skipping completed target %s", slug)
             continue
         try:
@@ -2813,10 +2864,11 @@ def main() -> int:
     targets = iter_targets(the_config, wanted_targets)
     completed_count = len(set(state.data.get("completed", [])))
     logging.info(
-        "Run settings: scan_order=%s shortcut_slots=%d max_attachments=%d targets_filter=%s matched_targets=%d state_file=%s completed=%d",
+        "Run settings: scan_order=%s shortcut_slots=%d max_attachments=%d force_reprocess=%s targets_filter=%s matched_targets=%d state_file=%s completed=%d",
         settings.scan_order,
         settings.shortcut_slots,
         settings.max_attachments_per_conversation,
+        settings.force_reprocess,
         sorted(wanted_targets) if wanted_targets else "<all>",
         len(targets),
         settings.state_file,

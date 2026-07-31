@@ -11,3 +11,5 @@ prod_trace.txt
 test_state.json
 People/
 al/
+*.pyc
+*sync-conflict*

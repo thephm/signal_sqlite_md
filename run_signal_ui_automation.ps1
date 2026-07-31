@@ -7,8 +7,18 @@ param(
     [string]$SignalExe = "",
     [string]$Targets = "",
     [string]$PythonExe = "",
+    [string]$StateFile = "",
+    [string]$LogFile = "",
+    [ValidateSet("shortcut-first", "signal-first", "config-first")]
+    [string]$ScanOrder = "shortcut-first",
+    [int]$ShortcutSlots = 9,
+    [int]$MaxAttachmentsPerConversation = 9999,
+    [double]$AttachmentWaitSeconds = 10.0,
+    [double]$DownloadActionTimeoutSeconds = 8.0,
     [switch]$InstallDeps,
     [switch]$DryRun,
+    [switch]$ClearState,
+    [switch]$ForceReprocess,
     [switch]$ManifestOnly
 )
 
@@ -23,16 +33,16 @@ Set-Location $repoRoot
 
 $pythonCmd = $null
 
-function Test-PythonHasPywinauto {
+function Test-PythonHasUiDeps {
     param(
         [string[]]$Cmd
     )
 
     try {
         if ($Cmd.Count -eq 2) {
-            & $Cmd[0] $Cmd[1] -c "import pywinauto" *> $null
+            & $Cmd[0] $Cmd[1] -c "import pywinauto, pyautogui" *> $null
         } else {
-            & $Cmd[0] -c "import pywinauto" *> $null
+            & $Cmd[0] -c "import pywinauto, pyautogui" *> $null
         }
         return ($LASTEXITCODE -eq 0)
     } catch {
@@ -74,7 +84,7 @@ if ($PythonExe) {
     }
 
     foreach ($candidate in $candidates) {
-        if (Test-PythonHasPywinauto -Cmd $candidate) {
+        if (Test-PythonHasUiDeps -Cmd $candidate) {
             $pythonCmd = $candidate
             break
         }
@@ -85,7 +95,7 @@ if ($PythonExe) {
     }
 }
 
-if (-not (Test-PythonHasPywinauto -Cmd $pythonCmd)) {
+if (-not (Test-PythonHasUiDeps -Cmd $pythonCmd)) {
     if ($InstallDeps) {
         Install-PythonDeps -Cmd $pythonCmd
     } else {
@@ -94,7 +104,15 @@ if (-not (Test-PythonHasPywinauto -Cmd $pythonCmd)) {
         } else {
             $exe = & $pythonCmd[0] -c "import sys; print(sys.executable)"
         }
-        throw "Selected interpreter is missing pywinauto: $exe. Re-run with -InstallDeps or pass -PythonExe to an interpreter that has pywinauto installed."
+        throw "Selected interpreter is missing pywinauto or pyautogui: $exe. Re-run with -InstallDeps or pass -PythonExe to an interpreter that has both packages installed."
+    }
+}
+
+if ($ClearState) {
+    $statePath = if ($StateFile) { $StateFile } else { Join-Path $OutputFolder "signal_ui_state.json" }
+    if (Test-Path $statePath) {
+        Remove-Item -LiteralPath $statePath -Force
+        Write-Host "Removed automation state file: $statePath"
     }
 }
 
@@ -103,7 +121,12 @@ $args = @(
     "-c", $ConfigDir,
     "-s", $SourceFolder,
     "-f", $MessagesFile,
-    "-o", $OutputFolder
+    "-o", $OutputFolder,
+    "--scan-order", $ScanOrder,
+    "--shortcut-slots", $ShortcutSlots,
+    "--max-attachments-per-conversation", $MaxAttachmentsPerConversation,
+    "--attachment-wait-seconds", $AttachmentWaitSeconds,
+    "--download-action-timeout-seconds", $DownloadActionTimeoutSeconds
 )
 
 if ($Me) {
@@ -115,8 +138,17 @@ if ($SignalExe) {
 if ($Targets) {
     $args += @("--targets", $Targets)
 }
+if ($StateFile) {
+    $args += @("--state-file", $StateFile)
+}
+if ($LogFile) {
+    $args += @("--log-file", $LogFile)
+}
 if ($DryRun) {
     $args += "--dry-run"
+}
+if ($ForceReprocess) {
+    $args += "--force-reprocess"
 }
 if ($ManifestOnly) {
     $args += "--manifest-only"
