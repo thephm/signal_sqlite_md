@@ -627,7 +627,7 @@ def build_target_aliases(target: Any) -> list[str]:
     full_name = getattr(identity, "full_name", "") if identity else ""
     identity_first = getattr(identity, "first_name", "") if identity else ""
 
-    # People carry first-name/last-name directly (from people.json). Match the
+    # People carry first_name/last_name directly (from people.json). Match the
     # Signal header against the first name alone AND against "First Last".
     person_first = getattr(target, "first_name", "") or ""
     person_last = getattr(target, "last_name", "") or ""
