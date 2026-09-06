@@ -292,3 +292,17 @@ def parse_attachments_file(messages, the_config):
     except Exception as e:
         logging.error(f"parse_attachments_file failed: {e}")
         return
+
+def load_attachment_message_ids(the_config):
+    """Return the message IDs represented in the attachment metadata export."""
+    try:
+        filename = os.path.join(the_config.source_folder, ATTACHMENTS_FILENAME)
+        with open(filename, newline='') as attachments_file:
+            return {
+                row.get(ATTACHMENT_MESSAGE_ID, "").strip()
+                for row in csv.DictReader(attachments_file)
+                if row.get(ATTACHMENT_MESSAGE_ID, "").strip()
+            }
+    except Exception as e:
+        logging.error(f"load_attachment_message_ids failed: {e}")
+        return set()

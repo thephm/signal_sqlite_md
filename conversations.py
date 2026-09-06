@@ -24,6 +24,7 @@ sys.path.insert(1, '../message_md/')
 import config
 
 CONVERSATIONS_FILENAME = "conversations.csv"
+MESSAGES_FILENAME = "messages.csv"
 
 # As at 2024, these are the columns/fields:
 #
@@ -161,7 +162,7 @@ def get_first_name(name):
     # join them back together e.g. "Marc-Andre"
     return '-'.join(capitalized_parts)
 
-def store_conversation_info(the_config, field_map, row):
+def store_conversation_info(the_config, field_map, row, active_conversation_ids):
     """
     Grab the conversation info from the row and store it in the corresponding
     Person object so it can be used later.
@@ -190,6 +191,10 @@ def store_conversation_info(the_config, field_map, row):
     slug = ""
     
     id = row[field_index(CONVERSATION_ID, field_map)]
+    conversation_type = row[field_index(CONVERSATION_TYPE, field_map)]
+
+    if conversation_type == "private" and active_conversation_ids is not None and id not in active_conversation_ids:
+        return
 
     # grab the name fields
     profile_name = row[field_index(CONVERSATION_PROFILE_NAME, field_map)]
@@ -207,29 +212,19 @@ def store_conversation_info(the_config, field_map, row):
 
         # if the option to create people on the fly who are not in  
         # the `people.json` file, use the `fullName` or `profileName`
-        if the_config.create_people:
-            the_person = person.Person()
-            if full_name:
-                slug = identity.generate_slug(full_name)
-                first_name = get_first_name(full_name)
-            elif profile_name:
-                slug = identity.generate_slug(profile_name)
-                first_name = get_first_name(profile_name)
-            if slug:
-                # add the person to the config
-                the_person.slug = slug
-                the_person.identity.first_name = first_name.capitalize()
-                the_person.identity.last_name = get_last_name(full_name)
-                the_person.identity.full_name = the_person.identity.first_name + " " + the_person.identity.last_name.capitalize()
-                if e164:
-                    the_person.mobile = e164
-                the_config.people.append(the_person)
-            else:
-                error_str = the_config.get_str(the_config.STR_NO_PERSON_WITH_PHONE_NUMBER)
-                error_str += " '" + str(phone) + "' "
-                error_str += the_config.get_str(the_config.STR_OR_WITH_FULL_NAME)
-                error_str += "'" + full_name + "'"
-                logging.error(error_str)
+        if the_config.create_people and not the_person:
+            the_person = the_config.get_or_create_person(
+                full_name=full_name or profile_name,
+                mobile=e164,
+                conversation_id=id,
+                source="Signal",
+                prompt=True,
+            )
+        elif the_config.create_people and the_person:
+            if e164 and not the_person.contact.mobile:
+                the_person.contact.mobile = the_config.normalize_mobile(e164)
+            if id and not the_person.conversation_id:
+                the_person.conversation_id = id
 
     # get the `ServiceId` value which me thinks is the unique ID for person.
     # this is needed to figure out who replied to group messages as those 
@@ -252,6 +247,32 @@ def store_conversation_info(the_config, field_map, row):
     else:
         group_slug = the_config.get_group_slug_by_conversation_id(id)
         
+def load_active_conversation_ids(the_config):
+    """Return conversation IDs used by exported messages or their reactions."""
+    try:
+        filename = os.path.join(the_config.source_folder, MESSAGES_FILENAME)
+        with open(filename, newline='') as messages_file:
+            reader = csv.DictReader(messages_file)
+            conversation_ids = set()
+            for row in reader:
+                conversation_id = row.get("conversationId", "").strip()
+                if conversation_id and row.get("type") in {"incoming", "outgoing"}:
+                    conversation_ids.add(conversation_id)
+
+                try:
+                    message_data = json.loads(row.get("json", ""))
+                    for reaction in message_data.get("reactions", []):
+                        from_id = str(reaction.get("fromId", "")).strip()
+                        if from_id:
+                            conversation_ids.add(from_id)
+                except (TypeError, ValueError):
+                    pass
+
+            return conversation_ids
+    except Exception as e:
+        logging.warning(f"load_active_conversation_ids failed: {e}")
+        return None
+
 def parse_conversations_file(the_config):
     """
     Parse the Signal SQLite 'conversations.csv' file to get each person's
@@ -270,6 +291,7 @@ def parse_conversations_file(the_config):
     """
 
     field_map = []
+    active_conversation_ids = load_active_conversation_ids(the_config)
 
     global SignalFields
   
@@ -285,7 +307,7 @@ def parse_conversations_file(the_config):
                     parse_conversations_header(row, field_map)
                 else:
                     try:
-                        store_conversation_info(the_config, field_map, row)
+                        store_conversation_info(the_config, field_map, row, active_conversation_ids)
                     except Exception as e:
                         logging.error(f"parse_conversations_file failed: {e}")
                 count += 1

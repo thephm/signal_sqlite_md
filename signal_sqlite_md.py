@@ -411,7 +411,7 @@ def parse_people(row, message, field_map, me):
 
     return found
 
-def parse_row(row, message, field_map):
+def parse_row(row, message, field_map, attachment_message_ids):
     """
     Parse one comma-separated row of the Signal `messages` CSV file into a
     Message object.
@@ -441,7 +441,11 @@ def parse_row(row, message, field_map):
 
         has_attachments_index = field_index(SIGNAL_HAS_ATTACHMENTS, field_map)
         has_attachments_value = row[has_attachments_index] if has_attachments_index != -1 else ""
-        message.has_attachments = str(has_attachments_value).strip().lower() in ["1", "true", "yes"]
+        message_id = row[field_index(SIGNAL_ID, field_map)].strip()
+        message.has_attachments = (
+            str(has_attachments_value).strip().lower() in ["1", "true", "yes"]
+            or message_id in attachment_message_ids
+        )
 
         try:
             service_id_index = field_index(SIGNAL_SOURCE_SERVICE_ID, field_map)
@@ -455,6 +459,8 @@ def parse_row(row, message, field_map):
             parse_json(row, message, field_map)
         except:
             pass
+    else:
+        return result
 
     # find out who the people are in the conversation, i.e. who the
     # message is from and to 
@@ -484,6 +490,7 @@ def load_messages(filename, messages, reactions, the_config):
     """
 
     field_map = []
+    attachment_message_ids = attachments.load_attachment_message_ids(the_config)
 
     with open(filename, 'r') as csv_file:
         reader = csv.reader(csv_file)
@@ -495,7 +502,7 @@ def load_messages(filename, messages, reactions, the_config):
                 # [['rowid', 0], ['id', 1], ['json', 2], ['sent_at', 5], ['conversationId', 7], ['source', 9], ['hasAttachments', 10], ['type', 15], ['body', 16]]
             else:
                 the_message = signal_message.SignalMessage()
-                if parse_row(row, the_message, field_map):
+                if parse_row(row, the_message, field_map, attachment_message_ids):
                     messages.append(the_message)
             count += 1
 
