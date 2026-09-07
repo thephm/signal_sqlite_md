@@ -5,6 +5,7 @@ decrypt_file2.py
 decrypt_key.py
 venv/
 .venv/
+.venv-wsl/
 signal_ui_state.json
 signal_ui_failures.log
 prod_trace.txt

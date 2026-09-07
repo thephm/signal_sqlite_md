@@ -32,6 +32,7 @@ $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $repoRoot
 
 $pythonCmd = $null
+$repoVenvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 
 function Test-PythonHasUiDeps {
     param(
@@ -72,6 +73,9 @@ if ($PythonExe) {
     $pythonCmd = @($PythonExe)
 } else {
     $candidates = @()
+    if (Test-Path $repoVenvPython) {
+        $candidates += ,@($repoVenvPython)
+    }
     if (Get-Command py -ErrorAction SilentlyContinue) {
         $candidates += ,@("py", "-3")
     }
@@ -80,7 +84,7 @@ if ($PythonExe) {
     }
 
     if ($candidates.Count -eq 0) {
-        throw "No Windows Python interpreter found. Install Python 3 or enable py launcher."
+        throw "No Windows Python interpreter found. Create .venv or install Python 3 and enable py launcher."
     }
 
     foreach ($candidate in $candidates) {

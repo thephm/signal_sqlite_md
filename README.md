@@ -175,6 +175,21 @@ If Signal's UI changes, adjust the shortcuts at the top of the new script or pas
 
 UI automation must run from native Windows Python (not WSL). A helper launcher script is included:
 
+The repository keeps native Windows dependencies in `.venv` and WSL dependencies in `.venv-wsl`. Create the PowerShell environment once, then the launcher will select it automatically:
+
+```
+C:\Users\micro\AppData\Local\Programs\Python\Python314\python.exe -m venv .venv
+.\.venv\Scripts\python.exe -m pip install pillow pillow-heif pywinauto pyautogui
+```
+
+From WSL, create and activate the separate environment with:
+
+```
+python3 -m venv .venv-wsl
+source .venv-wsl/bin/activate
+python -m pip install pillow pillow-heif lxml python-xlib pywinauto six tzlocal
+```
+
 ```
 .\run_signal_ui_automation.ps1 -ConfigDir C:\data\dev-output\config -SourceFolder C:\data\signal_sqlite -MessagesFile messages.csv -OutputFolder C:\data\dev-output -Me bernie
 ```

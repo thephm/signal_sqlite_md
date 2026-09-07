@@ -5,7 +5,7 @@ It will try several keyboard-delivery methods, one at a time, so we can see
 which (if any) actually opens the All Media pane.
 
 Usage:
-    py -3 test_media_shortcut.py
+    py -3 -m tests.test_media_shortcut
 """
 
 from __future__ import annotations

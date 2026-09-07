@@ -20,7 +20,7 @@ CONFIG_DIR=/mnt/c/data/dev-output/config
 # location to put the output Markdown files from signal_sqlite_md
 OUTPUT_DIR=/mnt/c/data/dev-output
 
-source .venv/bin/activate
+source .venv-wsl/bin/activate
 
 # get the SQLite DB key
 SIGNAL_BACKUP_TOOL="$DIR/signalbackup-tools_win.exe"
