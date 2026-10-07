@@ -1200,7 +1200,8 @@ class SignalUiDriver:
         """Copy conversation text and parse the header name.
 
         Primary path follows the proven sequence for long chats:
-        Ctrl+J (focus message pane) -> Home (jump to top/load history) -> Ctrl+C.
+        Ctrl+J (focus message pane) -> Page Up burst + Home (jump to top/load
+        history) -> Ctrl+C.
         If top-copy does not yield a name, fall back to Ctrl+A/C once and then
         immediately clear selection with Ctrl+J so later shortcuts still work.
         """
@@ -1215,14 +1216,18 @@ class SignalUiDriver:
             self._send_shortcut(["ctrl", "j"])
         time.sleep(0.2)
 
-        # Keep paging Home until copied text stabilizes. In long threads, the
-        # first Home may still be mid-history while older messages load.
+        # Keep paging up until copied text stabilizes. In long threads, a single
+        # Home often stops mid-history while older messages lazy-load, so send a
+        # burst of Page Ups before each Home to push through to the top.
         text = ""
         previous_text = ""
         stable_reads = 0
-        for _ in range(4):
+        for _ in range(8):
+            for _ in range(10):
+                self._send_shortcut(["pageup"])
+                time.sleep(0.08)
             self._send_shortcut(["home"])
-            time.sleep(0.35)
+            time.sleep(0.5)
 
             self._clear_clipboard()
             self._send_shortcut(["ctrl", "c"])
@@ -1236,7 +1241,7 @@ class SignalUiDriver:
                     return name
             if current and current == previous_text:
                 stable_reads += 1
-                if stable_reads >= 1:
+                if stable_reads >= 2:
                     break
             else:
                 stable_reads = 0
@@ -2585,18 +2590,13 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
         desired_name = f"untitled_{index:03d}.jpg"
 
         saved_path = None
-        for attempt in range(1, 4):
-            try:
-                logging.info("Saving %s media item %d attempt %d", slug, index, attempt)
-                saved_path = driver.save_media_preview_item(media_dir, desired_name)
-                break
-            except TimeoutError as exc:
-                logging.warning("Save attempt %d failed for %s item %d: %s", attempt, slug, index, exc)
-                if attempt < 3:
-                    time.sleep(0.5)
-                    continue
-                logging.info("No Save dialog for %s item %d; assuming end of media", slug, index)
-                break
+        try:
+            logging.info("Saving %s media item %d", slug, index)
+            saved_path = driver.save_media_preview_item(media_dir, desired_name)
+        except TimeoutError as exc:
+            logging.warning("Save failed for %s item %d: %s", slug, index, exc)
+            driver._close_all_save_dialogs()
+            logging.info("Stopped media workflow for %s after dismissing the Save dialog", slug)
 
         if saved_path is None:
             break
