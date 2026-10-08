@@ -202,18 +202,7 @@ Dry run:
 
 Useful media-run options are also forwarded by the launcher, including `-ScanOrder`, `-ShortcutSlots`, `-MaxAttachmentsPerConversation`, `-AttachmentWaitSeconds`, and `-DownloadActionTimeoutSeconds`.
 
-The automation resumes from `signal_ui_state.json`; completed slugs are skipped before the media tab is opened. To reprocess media, either pass a fresh state path or clear the existing state deliberately:
-
-```
-.\run_signal_ui_automation.ps1 -StateFile C:\data\dev-output\signal_ui_state_retry.json
-.\run_signal_ui_automation.ps1 -ClearState
-```
-
-To rerun a completed target without changing state files, pass `-ForceReprocess`:
-
-```
-.\run_signal_ui_automation.ps1 -Targets lisa -ForceReprocess -MaxAttachmentsPerConversation 3
-```
+Every run processes all matching conversations, including ones already marked completed in `signal_ui_state.json`. When a saved media file has the same content as a file already in that person's `media` folder, the new copy is deleted and the existing file is kept. The `-ForceReprocess` switch is no longer needed and has no effect.
 
 If `pywinauto` is missing in the selected interpreter, either let the launcher install dependencies:
 

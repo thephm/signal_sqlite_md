@@ -120,8 +120,21 @@ if IS_WINDOWS:
             ("dwExtraInfo", ULONG_PTR),
         ]
 
+    class _MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ULONG_PTR),
+        ]
+
     class _INPUTUNION(ctypes.Union):
-        _fields_ = [("ki", _KEYBDINPUT)]
+        # MOUSEINPUT is the largest member and sets the union size. Without it
+        # sizeof(INPUT) is 32 instead of 40 on x64, and SendInput rejects every
+        # call with ERROR_INVALID_PARAMETER (87).
+        _fields_ = [("ki", _KEYBDINPUT), ("mi", _MOUSEINPUT)]
 
     class _INPUT(ctypes.Structure):
         _fields_ = [("type", wintypes.DWORD), ("u", _INPUTUNION)]
@@ -773,6 +786,52 @@ def file_content_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+class ExistingMediaIndex:
+    """Finds files already in a media folder with identical content.
+
+    Files are grouped by size and only hashed when a new file has the same size,
+    so large folders of videos are not fully re-read on every run.
+    """
+
+    def __init__(self, folder: Path):
+        self._by_size: dict[int, list[Path]] = {}
+        self._hashes: dict[Path, str] = {}
+        for path in snapshot_files(folder):
+            try:
+                self._by_size.setdefault(path.stat().st_size, []).append(path)
+            except OSError:
+                continue
+
+    def find_match(self, new_file: Path, new_hash: str | None) -> Path | None:
+        if new_hash is None:
+            return None
+        try:
+            size = new_file.stat().st_size
+        except OSError:
+            return None
+        for candidate in self._by_size.get(size, []):
+            if same_filesystem_path(candidate, new_file) or not candidate.exists():
+                continue
+            cached = self._hashes.get(candidate)
+            if cached is None:
+                try:
+                    cached = file_content_hash(candidate)
+                except OSError:
+                    continue
+                self._hashes[candidate] = cached
+            if cached == new_hash:
+                return candidate
+        return None
+
+    def add(self, path: Path, file_hash: str | None) -> None:
+        try:
+            self._by_size.setdefault(path.stat().st_size, []).append(path)
+        except OSError:
+            return
+        if file_hash is not None:
+            self._hashes[path] = file_hash
+
+
 def wait_for_new_file(folder: Path, before: set[Path], timeout: float, poll_interval: float) -> Path:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -1200,8 +1259,7 @@ class SignalUiDriver:
         """Copy conversation text and parse the header name.
 
         Primary path follows the proven sequence for long chats:
-        Ctrl+J (focus message pane) -> Page Up burst + Home (jump to top/load
-        history) -> Ctrl+C.
+        Ctrl+J (focus message pane) -> Home (jump to top/load history) -> Ctrl+C.
         If top-copy does not yield a name, fall back to Ctrl+A/C once and then
         immediately clear selection with Ctrl+J so later shortcuts still work.
         """
@@ -1216,36 +1274,48 @@ class SignalUiDriver:
             self._send_shortcut(["ctrl", "j"])
         time.sleep(0.2)
 
-        # Keep paging up until copied text stabilizes. In long threads, a single
-        # Home often stops mid-history while older messages lazy-load, so send a
-        # burst of Page Ups before each Home to push through to the top.
+        # Keep pressing Home until we reach the top. Home moves message focus to
+        # the oldest loaded message; each press can trigger Signal to lazy-load
+        # older history. "At the top" = Home no longer changes what Ctrl+C
+        # copies, so stop on the first repeat instead of pressing Home blindly.
         text = ""
-        previous_text = ""
-        stable_reads = 0
-        for _ in range(8):
-            for _ in range(10):
-                self._send_shortcut(["pageup"])
-                time.sleep(0.08)
+        previous_key = ""
+        empty_reads = 0
+        for pass_num in range(1, 13):
             self._send_shortcut(["home"])
-            time.sleep(0.5)
+            time.sleep(0.8)
 
             self._clear_clipboard()
             self._send_shortcut(["ctrl", "c"])
             time.sleep(0.25)
 
             current = self._read_clipboard_text()
-            if current:
-                text = current
-                name = parse_conversation_name_from_clipboard(current)
-                if name:
-                    return name
-            if current and current == previous_text:
-                stable_reads += 1
-                if stable_reads >= 2:
+            # Compare on collapsed whitespace so trivial re-render differences
+            # don't look like new content.
+            key = " ".join((current or "").split())
+            fingerprint = hashlib.sha1(key.encode("utf-8")).hexdigest()[:8] if key else "-"
+            logging.info(
+                "Home pass %d copied %d chars [%s]", pass_num, len(current or ""), fingerprint
+            )
+
+            if not key:
+                # Nothing copied means Ctrl+C isn't capturing a focused message,
+                # so more Home presses can't tell us anything. Move on.
+                empty_reads += 1
+                if empty_reads >= 2:
+                    logging.info("Home copy is empty; skipping to full-transcript copy")
                     break
-            else:
-                stable_reads = 0
-            previous_text = current
+                continue
+            empty_reads = 0
+
+            text = current
+            name = parse_conversation_name_from_clipboard(current)
+            if name:
+                return name
+            if key == previous_key:
+                logging.info("Reached top of conversation after %d Home presses", pass_num)
+                break
+            previous_key = key
 
         if text:
             name = parse_conversation_name_from_clipboard(text)
@@ -1494,14 +1564,15 @@ class SignalUiDriver:
         time.sleep(0.3)
         self._log_foreground_window("before Ctrl+Shift+M")
         logging.info("Sending Ctrl+Shift+M to open media view")
-        # Delivery matters here: hardware-scancode SendInput does NOT open All
-        # Media in this Signal build (confirmed via diagnose_media_tab.py), but
-        # pyautogui.hotkey does. Use it as the primary path, falling back to
-        # scancode only if pyautogui is unavailable.
-        if pyautogui is not None:
-            pyautogui.hotkey("ctrl", "shift", "m")
-        elif not send_scancode_shortcut(["ctrl", "shift", "m"]):
-            self._send_shortcut(["ctrl", "shift", "m"])
+        # Use hardware-scancode SendInput. An earlier diagnostic concluded that
+        # scancodes did not open All Media, but at that time SendInput was being
+        # rejected outright (INPUT struct was the wrong size), so only the
+        # pyautogui fallback ever ran. Signal 8.30 ignores pyautogui keystrokes.
+        if not send_scancode_shortcut(["ctrl", "shift", "m"]):
+            if pyautogui is not None:
+                pyautogui.hotkey("ctrl", "shift", "m")
+            else:
+                self._send_shortcut(["ctrl", "shift", "m"])
         time.sleep(1.5)
         self._log_foreground_window("after Ctrl+Shift+M")
         if self._media_panel_present():
@@ -2401,7 +2472,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-require-visible-mouse", action="store_true", help="Allow non-visible click backend when pyautogui is unavailable")
     parser.add_argument("--mouse-move-duration-seconds", type=float, default=0.15, help="Seconds per mouse move step for visible pointer movement")
     parser.add_argument("--targets", default="", help="Comma-separated slug list to limit the run")
-    parser.add_argument("--force-reprocess", action="store_true", help="Process matching conversations even when their slug is already marked completed in the state file")
+    parser.add_argument("--force-reprocess", action="store_true", help="No effect: completed conversations are always reprocessed. Kept so existing commands keep working")
     parser.add_argument("--manifest-only", action="store_true", help="Only update markdown from the saved manifest")
     parser.add_argument("--traceback", action="store_true", help="Show full traceback on errors")
 
@@ -2584,6 +2655,7 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
 
     records: list[MediaRecord] = []
     last_hash: str | None = None
+    existing = ExistingMediaIndex(media_dir)
     index = 0
     while index < settings.max_attachments_per_conversation:
         index += 1
@@ -2616,6 +2688,22 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
             break
         last_hash = current_hash
 
+        # Already saved on an earlier run: drop the new copy and point the
+        # record at the existing file so markdown links still resolve.
+        already_saved = existing.find_match(saved_path, current_hash)
+        if already_saved is not None:
+            logging.info(
+                "%s item %d already saved as %s; removing new copy %s",
+                slug, index, already_saved.name, saved_path.name,
+            )
+            try:
+                saved_path.unlink()
+            except Exception:
+                pass
+            saved_path = already_saved
+        else:
+            existing.add(saved_path, current_hash)
+
         record = MediaRecord(
             slug=slug,
             label=label,
@@ -2626,8 +2714,9 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
             markdown_target=f"media/{saved_path.name}",
         )
         records.append(record)
-        state.add_download(record)
-        state.save()
+        if already_saved is None:
+            state.add_download(record)
+            state.save()
 
         # Move to the previous (older) media item for the next save.
         try:
@@ -2678,9 +2767,6 @@ def process_signal_first(driver: SignalUiDriver, settings: AutomationSettings, s
             continue
 
         slug = getattr(target, "slug", "unknown") or "unknown"
-        if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
-            logging.info("Skipping completed target %s", slug)
-            continue
 
         try:
             process_target(driver, settings, state, target)
@@ -2793,10 +2879,6 @@ def process_shortcut_first(driver: SignalUiDriver, settings: AutomationSettings,
                 slug = getattr(target, "slug", "unknown") or "unknown"
                 logging.info("Slot %d header '%s' matched person %s", idx, title, slug)
 
-            if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
-                logging.info("Skipping completed target %s before opening media; use a fresh --state-file or remove it from completed to reprocess", slug)
-                continue
-
             process_target(driver, settings, state, target, activate_target=False)
             processed += 1
         except Exception as exc:
@@ -2813,9 +2895,6 @@ def process_config_first(driver: SignalUiDriver, settings: AutomationSettings, s
     processed = 0
     for target in targets:
         slug = getattr(target, "slug", "unknown") or "unknown"
-        if slug in set(state.data.get("completed", [])) and not settings.force_reprocess:
-            logging.info("Skipping completed target %s", slug)
-            continue
         try:
             process_target(driver, settings, state, target)
             processed += 1
