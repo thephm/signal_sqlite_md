@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import dataclasses
 import hashlib
 import json
@@ -28,6 +29,7 @@ if str(MESSAGE_MD_DIR) not in sys.path:
 import config
 import markdown
 import message_md
+import attachments as signal_attachments
 
 try:
     from pywinauto import Application, Desktop
@@ -223,6 +225,7 @@ class AutomationSettings:
     me: str = ""
     menu_key_delay_seconds: float = 0.6
     force_reprocess: bool = False
+    source_folder: str = ""
 
 
 @dataclass
@@ -855,12 +858,37 @@ def unique_path(path: Path) -> Path:
     raise FileExistsError(f"Could not find an unused filename for {path}")
 
 
-def build_preserved_download_name(desired_name: str, original_name: str) -> str:
-    saved_name = original_name or desired_name
-    path = Path(saved_name)
-    if path.name.lower() == "spelling bee hints.jpg":
-        return f"{path.stem} {datetime.now().strftime('%Y-%m-%d')}{path.suffix}"
-    return saved_name
+def build_preserved_download_name(desired_name: str, original_name: str, sent: datetime | None = None) -> str:
+    # Exception names (e.g. "Spelling Bee Hints.jpg") get " YYYY-MM-DD" from the
+    # message's sent date, matching the converter's markdown links.
+    return signal_attachments.dated_filename(original_name or desired_name, sent)
+
+
+def load_attachment_sent_dates(source_folder: str) -> dict[str, datetime]:
+    """Map each attachment's plaintextHash (sha256 of the file) to its sent time."""
+    if not source_folder:
+        return {}
+    csv_path = Path(source_folder) / signal_attachments.ATTACHMENTS_FILENAME
+    if not csv_path.exists():
+        logging.warning("Attachments CSV not found at %s; dated filenames will use neighbouring media", csv_path)
+        return {}
+    dates: dict[str, datetime] = {}
+    try:
+        with csv_path.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                file_hash = (row.get("plaintextHash") or "").strip().lower()
+                sent = signal_attachments.sent_at_to_datetime(row.get(signal_attachments.ATTACHMENT_SENT_AT))
+                if file_hash and sent is not None:
+                    dates[file_hash] = sent
+    except (OSError, csv.Error) as exc:
+        logging.warning("Could not read %s: %s", csv_path, exc)
+    return dates
+
+
+def rename_with_sent_date(path: Path, original_name: str, sent: datetime) -> Path:
+    target = unique_path(path.with_name(build_preserved_download_name(original_name, original_name, sent)))
+    path.rename(target)
+    return target
 
 
 def same_filesystem_path(left: Path, right: Path) -> bool:
@@ -955,6 +983,10 @@ class SignalUiDriver:
         self.app = None
         self.window = None
         self._seen_message_keys: set[tuple[int, int, int, int]] = set()
+        self.attachment_sent_dates = load_attachment_sent_dates(settings.source_folder)
+        # Details of the most recent save, used for dated exception filenames.
+        self.last_save_original_name = ""
+        self.last_save_sent: datetime | None = None
 
     def launch(self) -> None:
         signal_exe = self.settings.signal_exe or self.discover_signal_exe()
@@ -1637,7 +1669,14 @@ class SignalUiDriver:
             self.settings.attachment_wait_seconds,
             self.settings.poll_interval_seconds,
         )
-        target = destination_dir / build_preserved_download_name(desired_name, created.name)
+        self.last_save_original_name = created.name
+        self.last_save_sent = None
+        if signal_attachments.needs_dated_filename(created.name):
+            try:
+                self.last_save_sent = self.attachment_sent_dates.get(file_content_hash(created))
+            except OSError:
+                pass
+        target = destination_dir / build_preserved_download_name(desired_name, created.name, self.last_save_sent)
         # Preserve the REAL extension from the file Signal actually wrote (e.g.
         # .jpg/.jpeg/.mp4/.mov) if the original name was not available.
         if created.suffix and created.suffix.lower() != target.suffix.lower():
@@ -2596,6 +2635,7 @@ def resolve_paths(args: argparse.Namespace, the_config: config.Config) -> Automa
         mouse_move_duration_seconds=args.mouse_move_duration_seconds,
         me=args.me,
         force_reprocess=args.force_reprocess,
+        source_folder=args.source_folder or "",
     )
 
 
@@ -2656,6 +2696,47 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
     records: list[MediaRecord] = []
     last_hash: str | None = None
     existing = ExistingMediaIndex(media_dir)
+
+    def record_saved(path: Path, is_new: bool) -> None:
+        record = MediaRecord(
+            slug=slug,
+            label=label,
+            media_kind="image",
+            source_label=source_label_from_saved_name(slug, path.name),
+            saved_filename=path.name,
+            saved_path=str(path),
+            markdown_target=f"media/{path.name}",
+        )
+        records.append(record)
+        if is_new:
+            state.add_download(record)
+            state.save()
+
+    # Exception files (e.g. "Spelling Bee Hints.jpg") whose own sent date is not
+    # in the attachments CSV wait here for a neighbour's date. Media is saved
+    # newest first, so the next dated item is the one above it in the chat
+    # (preferred); `below` is the date of the newer item saved before it.
+    pending_dates: list[tuple[Path, str, str | None, datetime | None]] = []
+    below_sent: datetime | None = None
+
+    def resolve_pending(above_sent: datetime | None) -> None:
+        for path, original, file_hash, below in pending_dates:
+            sent = above_sent or below
+            source = "message above" if above_sent else "message below"
+            if sent is None:
+                sent = datetime.now()
+                source = "today (no neighbouring date found)"
+            try:
+                dated = rename_with_sent_date(path, original, sent)
+            except OSError as exc:
+                logging.warning("Could not add date to %s: %s", path.name, exc)
+                dated = path
+            else:
+                logging.info("Named %s using date from %s", dated.name, source)
+            existing.add(dated, file_hash)
+            record_saved(dated, True)
+        pending_dates.clear()
+
     index = 0
     while index < settings.max_attachments_per_conversation:
         index += 1
@@ -2688,9 +2769,25 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
             break
         last_hash = current_hash
 
+        original_name = driver.last_save_original_name
+        own_sent = driver.last_save_sent
+        item_sent = driver.attachment_sent_dates.get(current_hash) if current_hash else None
+        needs_neighbour_date = signal_attachments.needs_dated_filename(original_name) and own_sent is None
+
         # Already saved on an earlier run: drop the new copy and point the
         # record at the existing file so markdown links still resolve.
         already_saved = existing.find_match(saved_path, current_hash)
+        if already_saved is not None and own_sent is not None:
+            # An earlier run may have dated this file with the run date instead
+            # of the sent date; keep the correctly dated new copy instead.
+            expected_name = build_preserved_download_name(original_name, original_name, own_sent)
+            if saved_path.name == expected_name and already_saved.name != expected_name:
+                logging.info("Replacing %s with correctly dated %s", already_saved.name, saved_path.name)
+                try:
+                    already_saved.unlink()
+                    already_saved = None
+                except OSError as exc:
+                    logging.warning("Could not remove %s: %s", already_saved.name, exc)
         if already_saved is not None:
             logging.info(
                 "%s item %d already saved as %s; removing new copy %s",
@@ -2701,28 +2798,34 @@ def process_target(driver: SignalUiDriver, settings: AutomationSettings, state: 
             except Exception:
                 pass
             saved_path = already_saved
+        elif needs_neighbour_date:
+            # Move it off the plain name so the next same-named Save does not hit
+            # an overwrite prompt while it waits for a date.
+            placeholder = unique_path(saved_path.with_name(f"{Path(original_name).stem} undated{saved_path.suffix}"))
+            try:
+                saved_path.rename(placeholder)
+                saved_path = placeholder
+            except OSError as exc:
+                logging.warning("Could not rename %s: %s", saved_path.name, exc)
+            pending_dates.append((saved_path, original_name, current_hash, below_sent))
         else:
             existing.add(saved_path, current_hash)
 
-        record = MediaRecord(
-            slug=slug,
-            label=label,
-            media_kind="image",
-            source_label=source_label_from_saved_name(slug, saved_path.name),
-            saved_filename=saved_path.name,
-            saved_path=str(saved_path),
-            markdown_target=f"media/{saved_path.name}",
-        )
-        records.append(record)
-        if already_saved is None:
-            state.add_download(record)
-            state.save()
+        if item_sent is not None:
+            resolve_pending(item_sent)
+            below_sent = item_sent
+
+        if already_saved is not None or not needs_neighbour_date:
+            record_saved(saved_path, already_saved is None)
 
         # Move to the previous (older) media item for the next save.
         try:
             driver.previous_media_item()
         except Exception:
             break
+
+    # Anything still waiting had no older dated item, so use the newer one.
+    resolve_pending(None)
 
     # Leave the media preview cleanly before moving to the next conversation.
     try:

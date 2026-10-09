@@ -147,7 +147,14 @@ If you want to stay inside Signal Desktop and save attachments from the UI inste
 
 It reuses the same `message_md` config-loading path as `signal_sqlite_md.py`, keeps a resumable state file, and writes downloaded media into `People/<person-slug>/media` or `People/groups/<group-slug>/media` before rewriting markdown links to the saved filenames.
 
-Default traversal is shortcut-first (`Ctrl+1`, `Ctrl+2`, ...): for each visible conversation slot, it opens the conversation, scans messages on the right pane, right-clicks each candidate message, and only downloads when the first context-menu item is `Download`.
+Default traversal is shortcut-first (`Ctrl+1`, `Ctrl+2`, ...). For each conversation slot it:
+
+1. Opens the conversation and works out who it's with. It presses `Home` and copies the top message (`Ctrl+C`), stopping as soon as two copies match, which means it has reached the top. If the copy comes back empty, it copies the whole transcript (`Ctrl+A`, `Ctrl+C`) instead. The conversation header name is matched against `people.json`/`groups.json`.
+2. Opens All Media (`Ctrl+Shift+M`), then opens the newest item (`Ctrl+T`, `Enter`).
+3. Saves each item with `Ctrl+S` through the Windows Save dialog, then presses `Left` to move to the next older item. When `Left` stops moving, the same item is saved again. That byte-identical copy is deleted and marks the end of the media.
+4. If the Save dialog doesn't open or complete, it is closed once (no retries) and the tool moves on to the next conversation.
+
+Keystrokes are sent as hardware scancodes with Win32 `SendInput`. Signal Desktop 8.30+ ignores pyautogui's virtual-key input, so pyautogui is only a fallback.
 
 Example:
 
@@ -203,6 +210,14 @@ Dry run:
 Useful media-run options are also forwarded by the launcher, including `-ScanOrder`, `-ShortcutSlots`, `-MaxAttachmentsPerConversation`, `-AttachmentWaitSeconds`, and `-DownloadActionTimeoutSeconds`.
 
 Every run processes all matching conversations, including ones already marked completed in `signal_ui_state.json`. When a saved media file has the same content as a file already in that person's `media` folder, the new copy is deleted and the existing file is kept. The `-ForceReprocess` switch is no longer needed and has no effect.
+
+Attachments that arrive repeatedly under the same name (listed in `DATED_FILENAME_EXCEPTIONS` in `attachments.py`, currently `Spelling Bee Hints.jpg`) get the message's sent date appended, e.g. `Spelling Bee Hints 2026-10-07.jpg`, in both the markdown converter and the media download tool. The date is the local date of the message's `sentAt`, never the date of the run. For example, a hint sent at 21:47 on 2026-10-07 is saved on 2026-10-08 as `Spelling Bee Hints 2026-10-07.jpg`. The download tool finds the sent date by matching the saved file's SHA-256 to `plaintextHash` in `message_attachments.csv` (from `-SourceFolder`). So export the SQLite tables before running the media download. If the file isn't in the export, it uses the date of the media item above it in the chat, or else the one below it. If neither has a date, it falls back to today's date and logs that. If an earlier run saved the file under a different date, the correctly dated copy replaces it. To add another recurring filename, add its lowercase name to `DATED_FILENAME_EXCEPTIONS`.
+
+Run the unit tests (including the dated-filename regression tests in `tests/test_dated_filenames.py`) with:
+
+```
+.\.venv\Scripts\python.exe -m unittest tests.test_dated_filenames tests.test_heic_to_jpg
+```
 
 If `pywinauto` is missing in the selected interpreter, either let the launcher install dependencies:
 

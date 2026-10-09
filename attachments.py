@@ -172,6 +172,41 @@ def signal_default_filename(sent_at, order_in_message, content_type):
 
     return f"signal-{timestamp_text}_{suffix_index:03d}.{extension_from_content_type(content_type)}"
 
+# Attachments that arrive repeatedly under the same name, e.g. a daily image.
+# These get the message's sent date appended (" YYYY-MM-DD") so every copy has
+# a unique filename. Matching is case-insensitive.
+DATED_FILENAME_EXCEPTIONS = {
+    "spelling bee hints.jpg",
+}
+
+def needs_dated_filename(filename):
+    return PurePath(filename).name.lower() in DATED_FILENAME_EXCEPTIONS
+
+def dated_filename(filename, sent):
+    """Append ' YYYY-MM-DD' (from datetime `sent`) to exception filenames."""
+    if sent is None or not needs_dated_filename(filename):
+        return filename
+    path = PurePath(filename)
+    return f"{path.stem} {sent.strftime('%Y-%m-%d')}{path.suffix}"
+
+def sent_at_to_datetime(sent_at):
+    """Convert a Signal `sentAt` millisecond value to a local datetime, or None."""
+    try:
+        return datetime.fromtimestamp(int(float(sent_at)) / 1000)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+def apply_filename_exceptions(filename, sent_at, fallback_timestamp=None):
+    if not needs_dated_filename(filename):
+        return filename
+    sent = sent_at_to_datetime(sent_at)
+    if sent is None and fallback_timestamp:
+        sent = datetime.fromtimestamp(fallback_timestamp)
+    if sent is None:
+        logging.warning(f"No sent date for attachment '{filename}'; keeping its original name.")
+        return filename
+    return dated_filename(filename, sent)
+
 def preserve_exact_filename(the_attachment, filename, content_type, the_config):
     filename = filename_from_path(filename)
     if not filename:
@@ -235,9 +270,12 @@ def store_attachments_info(messages, the_config, field_map, row):
     width = int(float(width_str)) if width_str and width_str.strip() else 0
     
     content_type = row[field_index(ATTACHMENT_CONTENT_TYPE, field_map)]
+    sent_at = optional_field_value(row, field_map, [ATTACHMENT_SENT_AT])
     filename = optional_field_value(row, field_map, ATTACHMENT_FILE_NAME_CANDIDATES)
-    if not filename:
-        sent_at = optional_field_value(row, field_map, [ATTACHMENT_SENT_AT])
+    if filename:
+        message_timestamp = getattr(the_message, "timestamp", None) if the_message is not None else None
+        filename = apply_filename_exceptions(filename_from_path(filename), sent_at, message_timestamp)
+    else:
         order_in_message = optional_field_value(row, field_map, [ATTACHMENT_ORDER_IN_MESSAGE])
         filename = signal_default_filename(sent_at, order_in_message, content_type)
 
