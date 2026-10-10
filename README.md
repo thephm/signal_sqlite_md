@@ -1,5 +1,9 @@
 # signal_sqlite_md
 
+**UPDATE:** This repo will no longer be maintained by myself because there's something newer! As of May, 2026 Signal added an Export to JSON (actually, JSONL) to their Android and Windows apps. This makes the SQLite approach no longer necessary. See https://github.com/thephm/signal_jsonl_md
+
+---
+
 Converts messages from a Signal SQLite database export to Markdown.
 
 Unlike [signal_md](https://github.com/thephm/signal_md) which requires output from `signald`, this tool requires nothing beyond this Python script, some configuration, and a tool to export the DB.
